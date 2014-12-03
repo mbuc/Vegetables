@@ -68,14 +68,15 @@ EMPTY_SPACE = -1 # an arbitrary, nonpositive value
 ROWABOVEBOARD = 'row above board' # an arbitrary, noninteger value
 
 def main():
-    global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, BOARDRECTS, BG_IMAGE, DRAGGING_POS, DRAGGING_VEG
+    global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, SMALLFONT, BOARDRECTS, BG_IMAGE, DRAGGING_POS, DRAGGING_VEG
 
     # Initial set up.
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
     DISPLAYSURF = pygame.display.set_mode((GAME_WINDOW_WIDTH, GAME_WINDOW_HEIGHT))
     pygame.display.set_caption('Veggie Saga')
-    BASICFONT = pygame.font.Font('freesansbold.ttf', 36)
+    BASICFONT = pygame.font.Font('freesansbold.ttf', 72)
+    SMALLFONT = pygame.font.Font('freesansbold.ttf', 36) # Used for Game Over screen.
     BG_IMAGE        = pygame.image.load("background.jpg").convert()
     DRAGGING_POS = None
 
@@ -107,7 +108,7 @@ def runGame():
     # Plays through a single game. When the game is over, this function returns.
     global DRAGGING_POS, DRAGGING_VEG
     
-    # Initalize the board.
+    # Initialize the board.
     gameBoard               = []
     for x in range(BOARD_WIDTH):
         gameBoard.append([EMPTY_SPACE] * BOARD_HEIGHT)
@@ -115,10 +116,10 @@ def runGame():
     # initialize variables for the start of a new game
     score                   = 0
     gameIsOver              = False
+    DRAGGING_POS            = None
     lastMouseDownX          = None
     lastMouseDownY          = None
     lastScoreDeduction      = time.time()
-    DRAGGING_POS            = None
     firstSelectedVeggie     = None
     clickContinueTextSurf   = None
 
@@ -228,7 +229,7 @@ def runGame():
             if clickContinueTextSurf == None:
                 # Only render the text once. In future iterations, just
                 # use the Surface object already in clickContinueTextSurf
-                clickContinueTextSurf = BASICFONT.render('Final Score: %s (Click to continue)' % (score), 1, GAMEOVERCOLOR, GAMEOVERBGCOLOR)
+                clickContinueTextSurf = SMALLFONT.render('Final Score: %s (Click to continue)' % (score), 1, GAMEOVERCOLOR, GAMEOVERBGCOLOR)
                 clickContinueTextRect = clickContinueTextSurf.get_rect()
                 clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
             DISPLAYSURF.blit(clickContinueTextSurf, clickContinueTextRect)
@@ -453,7 +454,7 @@ def animateMovingVeggies(board, veggies, pointsText, score, speed=MOVE_RATE):
             drawMovingVeggie(veggie, progress)
         drawScore(score)
         for pointText in pointsText:
-            pointsSurf = BASICFONT.render(str(pointText['points']), 1, SCORECOLOR)
+            pointsSurf = BASICFONT.render("+" + str(pointText['points']) + "!", 1, PURPLE)
             pointsRect = pointsSurf.get_rect()
             pointsRect.center = (pointText['x'], pointText['y'])
             DISPLAYSURF.blit(pointsSurf, pointsRect)
