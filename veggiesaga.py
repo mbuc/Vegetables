@@ -46,7 +46,7 @@ BLACK     = (  0,   0,   0)
 BROWN     = ( 85,  65,   0)
 
 # Display color constants
-HIGHLIGHTCOLOR = PURPLE # color of the selected veggie's border
+HIGHLIGHTCOLOR = RED # color of the selected veggie's border
 BGCOLOR = BLACK # background color on the screen
 GRIDCOLOR = BLUE # color of the game board
 GAMEOVERCOLOR = RED # color of the "Game over" text.
@@ -68,7 +68,7 @@ EMPTY_SPACE = -1 # an arbitrary, nonpositive value
 ROWABOVEBOARD = 'row above board' # an arbitrary, noninteger value
 
 def main():
-    global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, BOARDRECTS, BG_IMAGE
+    global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, BOARDRECTS, BG_IMAGE, DRAGGING_POS, DRAGGING_VEG
 
     # Initial set up.
     pygame.init()
@@ -77,6 +77,7 @@ def main():
     pygame.display.set_caption('Veggie Saga')
     BASICFONT = pygame.font.Font('freesansbold.ttf', 36)
     BG_IMAGE        = pygame.image.load("background.jpg").convert()
+    DRAGGING_POS = None
 
     # Load the images
     IMAGES = []
@@ -104,7 +105,8 @@ def main():
 
 def runGame():
     # Plays through a single game. When the game is over, this function returns.
-
+    global DRAGGING_POS, DRAGGING_VEG
+    
     # Initalize the board.
     gameBoard               = []
     for x in range(BOARD_WIDTH):
@@ -116,6 +118,7 @@ def runGame():
     lastMouseDownX          = None
     lastMouseDownY          = None
     lastScoreDeduction      = time.time()
+    DRAGGING_POS            = None
     firstSelectedVeggie     = None
     clickContinueTextSurf   = None
 
@@ -132,6 +135,8 @@ def runGame():
                 return # start a new game
 
             elif event.type == MOUSEBUTTONUP:
+                DRAGGING_POS = None
+                
                 if gameIsOver:
                     return # after games ends, click to start a new game
 
@@ -149,6 +154,11 @@ def runGame():
             elif event.type == MOUSEBUTTONDOWN:
                 # this is the start of a mouse click or mouse drag
                 lastMouseDownX, lastMouseDownY = event.pos
+                DRAGGING_POS = event.pos
+                DRAGGING_VEG = checkForVeggieClick(event.pos)
+                
+                # Uncomment to highlight the veggie square while dragging.
+                #firstSelectedVeggie = checkForVeggieClick((lastMouseDownX, lastMouseDownY))
 
         if clickedSpace and not firstSelectedVeggie:
             # This was the first veggie clicked on.
@@ -207,11 +217,13 @@ def runGame():
                 gameIsOver = True
 
         # Draw the board.
-        #DISPLAYSURF.fill(BGCOLOR)
-        DISPLAYSURF.blit(BG_IMAGE, [0, 0])
+        #DISPLAYSURF.fill(BGCOLOR) # Uncomment to draw a black background.
+        DISPLAYSURF.blit(BG_IMAGE, [0, 0]) # Draw the background.
         drawBoard(gameBoard)
+        
         if firstSelectedVeggie != None:
             highlightSpace(firstSelectedVeggie['x'], firstSelectedVeggie['y'])
+            
         if gameIsOver:
             if clickContinueTextSurf == None:
                 # Only render the text once. In future iterations, just
@@ -509,8 +521,22 @@ def drawBoard(board):
         for y in range(BOARD_HEIGHT):
             pygame.draw.rect(DISPLAYSURF, GRIDCOLOR, BOARDRECTS[x][y], 1)
             veggieToDraw = board[x][y]
-            if veggieToDraw != EMPTY_SPACE:
-                DISPLAYSURF.blit(IMAGES[veggieToDraw], BOARDRECTS[x][y])
+            if DRAGGING_POS != None:
+                #print ("Dragging...")
+                if ((x == DRAGGING_VEG['x']) and (y == DRAGGING_VEG['y'])):
+                    # Drag the image with the mouse
+                    if veggieToDraw != EMPTY_SPACE:
+                        #DISPLAYSURF.blit(IMAGES[veggieToDraw], [pygame.mouse.get_pos[0], pygame.mouse.get_pos[1]])
+                        #print (pygame.mouse.get_pos())
+                        mouse_pos = pygame.mouse.get_pos()
+                        veg_item  = BOARDRECTS[x][y]
+                        DISPLAYSURF.blit(IMAGES[veggieToDraw], [mouse_pos[0] - 32, mouse_pos[1] - 32])
+                else:
+                    if veggieToDraw != EMPTY_SPACE:
+                        DISPLAYSURF.blit(IMAGES[veggieToDraw], BOARDRECTS[x][y])
+            else:
+                if veggieToDraw != EMPTY_SPACE:
+                    DISPLAYSURF.blit(IMAGES[veggieToDraw], BOARDRECTS[x][y])
 
 
 def getBoardCopyMinusVeggies(board, veggies):
