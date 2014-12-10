@@ -17,6 +17,8 @@ with the following keys:
 
 import random, time, pygame, sys, copy
 from pygame.locals import *
+from random import randint
+
 
 FPS = 30 # Screen refresh rate (in Frames Per Second).
 GAME_WINDOW_WIDTH = 800  # Width of game window (px).
@@ -26,7 +28,7 @@ BOARD_WIDTH = 8 # Number of columns.
 BOARD_HEIGHT = 8 # Number of rows.
 IMAGE_SIZE = 64 # Tile size (px).
 
-MAX_GAME_LENGTH = 10000 # The number of moves until a game times out.
+MAX_GAME_LENGTH = 100 # The number of moves until a game times out.
 
 # Note that the game looks for PNG images for each veggie using the
 # name format "veggie#.png" (# from 0 to N-1).
@@ -69,17 +71,21 @@ ROWABOVEBOARD = 'row above board' # an arbitrary, noninteger value
 
 def main():
     global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, SMALLFONT, BOARDRECTS, BG_IMAGE, DRAGGING_POS, DRAGGING_VEG
+    global score
 
     # Initial set up.
     pygame.init()
-    FPSCLOCK = pygame.time.Clock()
-    DISPLAYSURF = pygame.display.set_mode((GAME_WINDOW_WIDTH, GAME_WINDOW_HEIGHT))
+    FPSCLOCK     = pygame.time.Clock()
+    DISPLAYSURF  = pygame.display.set_mode((GAME_WINDOW_WIDTH, GAME_WINDOW_HEIGHT))
     pygame.display.set_caption('Veggie Saga')
-    BASICFONT = pygame.font.Font('freesansbold.ttf', 72)
-    SMALLFONT = pygame.font.Font('freesansbold.ttf', 36) # Used for Game Over screen.
-    BG_IMAGE        = pygame.image.load("background.jpg").convert()
+    BASICFONT    = pygame.font.Font('freesansbold.ttf', 72)
+    SMALLFONT    = pygame.font.Font('freesansbold.ttf', 36) # Used for Game Over screen.
+    BG_IMAGE     = pygame.image.load("background.jpg").convert()
     DRAGGING_POS = None
 
+    moves = generateMoves()
+    board = generateBoard()
+    
     # Load the images
     IMAGES = []
     for i in range(1, NUM_VEGGIES + 1):
@@ -103,10 +109,81 @@ def main():
     while True:
         runGame()
 
+# AI Code #
+
+# Requires moves, an array of MAX_GAME_LENGTH size that contains the AIs moves, in order.
+# board, the layout of the board
+# item_stack, the stack of items that will fill in empty spaces.
+def runAI(moves, board, item_stack):
+    #
+    #
+    #
+    return()
+
+def generateBoard():
+    print("Generating random game board...")
+    
+
+def generateMoves():
+    print("Generating AI moves...")
+    
+    moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
+    #moves = {}
+
+    for i in range(0, MAX_GAME_LENGTH - 1):
+        x = randint(0,7)
+        y = randint(0,7)
+
+        moves[i][0] = x
+        moves[i][1] = y
+        moves[i][2] = randMove(x, y)
+
+    print(moves)
+    
+    return(moves) # Return an array of size MAX_GAME_LENGTH that contains AI moves
+
+def randMove(x, y):
+    #move = randint(0,3)
+    bag = set()
+
+    if x == 0:
+        if y == 0:
+            # Down or Right only
+            bag = list([DOWN, RIGHT])
+        elif y == 7:
+            # Up or Right only
+            bag = list([UP, RIGHT])
+        else:
+            # Up, Down, or Right
+            bag = list([UP, DOWN, RIGHT])
+    elif x == 7:
+        if y == 0:
+            # Down or Left only
+            bag = list([DOWN, LEFT])
+        elif y == 7:
+            # Up or Left only
+            bag = list([UP, LEFT])
+        else:
+            # Up, Down, or Left
+            bag = list([UP, DOWN, LEFT])
+    elif y == 0:
+        # Down, Left, or Right
+        bag = list([DOWN, LEFT, RIGHT])
+    elif y == 7:
+        # Up, Left, or Right
+        bag = list([UP, LEFT, RIGHT])
+    else:
+        # Anything
+        bag = list([UP, DOWN, LEFT, RIGHT])
+
+    return random.choice(bag)
+
+# Game code #
 
 def runGame():
     # Plays through a single game. When the game is over, this function returns.
     global DRAGGING_POS, DRAGGING_VEG
+    global score
     
     # Initialize the board.
     gameBoard               = []
@@ -124,7 +201,7 @@ def runGame():
     clickContinueTextSurf   = None
 
     # Populate and display the initial veggies.
-    fillBoardAndAnimate(gameBoard, [], score)
+    fillBoardAndAnimate(gameBoard, [])
 
     while True: # main game loop
         clickedSpace = None
@@ -174,7 +251,7 @@ def runGame():
 
             # Show the swap animation on the screen.
             boardCopy = getBoardCopyMinusVeggies(gameBoard, (firstSwappingVeggie, secondSwappingVeggie))
-            animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [], score)
+            animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
 
             # Swap the veggies in the board data structure.
             gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
@@ -184,7 +261,7 @@ def runGame():
             matchedVeggies = findMatchingVeggies(gameBoard)
             if matchedVeggies == []:
                 # Was not a matching move; swap the veggies back
-                animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [], score)
+                animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
                 gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
                 gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
             else:
@@ -208,7 +285,7 @@ def runGame():
                     score += scoreAdd
 
                     # Drop the new veggies.
-                    fillBoardAndAnimate(gameBoard, points, score)
+                    fillBoardAndAnimate(gameBoard, points)
 
                     # Check if there are any new matches.
                     matchedVeggies = findMatchingVeggies(gameBoard)
@@ -444,7 +521,9 @@ def getDroppingVeggies(board):
     return droppingVeggies
 
 
-def animateMovingVeggies(board, veggies, pointsText, score, speed=MOVE_RATE):
+def animateMovingVeggies(board, veggies, pointsText, speed=MOVE_RATE):
+    global score
+    
     # pointsText is a dictionary with keys 'x', 'y', and 'points'
     progress = 0 # progress at 0 represents beginning, 100 means finished.
     while progress < 100: # animation loop
@@ -485,7 +564,7 @@ def moveVeggies(board, movingVeggies):
             board[veggie['x']][0] = veggie['imageNum'] # move to top row
 
 
-def fillBoardAndAnimate(board, points, score):
+def fillBoardAndAnimate(board, points):
     dropSlots = getDropSlots(board)
     while dropSlots != [[]] * BOARD_WIDTH:
         # do the dropping animation as long as there are more veggies to drop
@@ -496,7 +575,7 @@ def fillBoardAndAnimate(board, points, score):
                 movingVeggies.append({'imageNum': dropSlots[x][0], 'x': x, 'y': ROWABOVEBOARD, 'direction': DOWN})
 
         boardCopy = getBoardCopyMinusVeggies(board, movingVeggies)
-        animateMovingVeggies(boardCopy, movingVeggies, points, score, MOVE_RATE * 3)
+        animateMovingVeggies(boardCopy, movingVeggies, points, MOVE_RATE * 3)
         moveVeggies(board, movingVeggies)
 
         # Make the next row of veggies from the drop slots
