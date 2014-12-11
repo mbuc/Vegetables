@@ -7,7 +7,7 @@
 This program has "veggie data structures", which are basically dictionaries
 with the following keys:
   'x' and 'y' - The location of the veggie on the board. 0,0 is the top left.
-                There is also a ROWABOVEBOARD row that 'y' can be set to,
+                There is also a HIDDEN_ROW row that 'y' can be set to,
                 to indicate that it is above the board.
   'direction' - one of the four constant variables UP, DOWN, LEFT, RIGHT.
                 This is the direction the veggie is moving.
@@ -15,77 +15,69 @@ with the following keys:
                 this veggie uses.
 """
 
+''' Note that the game looks for PNG images for each veggie using the name format
+    "veggie#.png" (# from 0 to NUM_VEGGIES - 1). '''
+
 import random, time, pygame, sys, copy
 from pygame.locals import *
 from random import randint
 
+""" Constants """
 
-FPS = 30 # Screen refresh rate (in Frames Per Second).
-GAME_WINDOW_WIDTH = 800  # Width of game window (px).
-GAME_WINDOW_HEIGHT = 600 # Height of game window (px).
+DEBUG = True
 
-BOARD_WIDTH = 8 # Number of columns.
-BOARD_HEIGHT = 8 # Number of rows.
-IMAGE_SIZE = 64 # Tile size (px).
-
+FPS             = 30  # Screen refresh rate (in Frames Per Second).
+MOVE_RATE       = 10  # Animation speed (1 to 100).
+IMAGE_SIZE      = 64  # Tile size (px).
+NUM_VEGGIES     = 7   # Number of veggie types.
 MAX_GAME_LENGTH = 100 # The number of moves until a game times out.
 
-# Note that the game looks for PNG images for each veggie using the
-# name format "veggie#.png" (# from 0 to N-1).
-NUM_VEGGIES = 7 # Number of veggie types.
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
-#xxx
-MOVE_RATE = 10 # 1 to 100, larger num means faster animations
-DEDUCTSPEED = 0.8 # reduces score by 1 point every DEDUCTSPEED seconds.
-
-#             R    G    B
-PURPLE    = (255,   0, 255)
-LIGHTBLUE = (170, 190, 255)
-BLUE      = (  0,   0, 255)
-RED       = (255, 100, 100)
-BLACK     = (  0,   0,   0)
-BROWN     = ( 85,  65,   0)
+# Window sizing constants
+WINDOW_WIDTH  = 800 # Width of game window (px).
+WINDOW_HEIGHT = 600 # Height of game window (px).
+BOARD_WIDTH   = 8   # Number of columns.
+BOARD_HEIGHT  = 8   # Number of rows.
+X_MARGIN      = int((WINDOW_WIDTH - IMAGE_SIZE * BOARD_WIDTH) / 2)   # Margin size on the x-axis.
+Y_MARGIN      = int((WINDOW_HEIGHT - IMAGE_SIZE * BOARD_HEIGHT) / 2) # Margin size on the y-axis.
 
 # Display color constants
-HIGHLIGHTCOLOR = RED # color of the selected veggie's border
-BGCOLOR = BLACK # background color on the screen
-GRIDCOLOR = BLUE # color of the game board
-GAMEOVERCOLOR = RED # color of the "Game over" text.
-GAMEOVERBGCOLOR = BLACK # background color of the "Game over" text.
-SCORECOLOR = BROWN # color of the text for the player's score
+GRID_COLOR         = (  0,   0, 255) # Blue; Game board color.
+SCORE_COLOR        = ( 85,  65,   0) # Pop-up score color.
+GAME_OVER_COLOR    = (255,   0,   0) # Red; Color of the "Game over" text.
+HIGHLIGHT_COLOR    = (255, 100, 100) # Reddish; Selected board space border color.
+GAME_OVER_BG_COLOR = (  0,   0,   0) # Black; Background color of the "Game over" text.
 
-# The amount of space to the sides of the board to the edge of the window
-# is used several times, so calculate it once here and store in variables.
-XMARGIN = int((GAME_WINDOW_WIDTH - IMAGE_SIZE * BOARD_WIDTH) / 2)
-YMARGIN = int((GAME_WINDOW_HEIGHT - IMAGE_SIZE * BOARD_HEIGHT) / 2)
+# Identifier constants
+UP          = 'up'
+DOWN        = 'down'
+LEFT        = 'left'
+RIGHT       = 'right'
+EMPTY_SPACE = -1       # An arbitrary, non-positive value that signifies an empty space on the board.
+HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
 
-# constants for direction values
-UP = 'up'
-DOWN = 'down'
-LEFT = 'left'
-RIGHT = 'right'
 
-EMPTY_SPACE = -1 # an arbitrary, nonpositive value
-ROWABOVEBOARD = 'row above board' # an arbitrary, noninteger value
+
+''' Main function '''
 
 def main():
-    global FPSCLOCK, DISPLAYSURF, IMAGES, BASICFONT, SMALLFONT, BOARDRECTS, BG_IMAGE, DRAGGING_POS, DRAGGING_VEG
-    global score
+    global gameClock, gameWindow, IMAGES, mainFont, smallFont, boardRects, bgImage, draggingPosition, draggingVeggie
 
     # Initial set up.
     pygame.init()
-    FPSCLOCK     = pygame.time.Clock()
-    DISPLAYSURF  = pygame.display.set_mode((GAME_WINDOW_WIDTH, GAME_WINDOW_HEIGHT))
+    gameClock        = pygame.time.Clock()
+    gameWindow       = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption('Veggie Saga')
-    BASICFONT    = pygame.font.Font('freesansbold.ttf', 72)
-    SMALLFONT    = pygame.font.Font('freesansbold.ttf', 36) # Used for Game Over screen.
-    BG_IMAGE     = pygame.image.load("background.jpg").convert()
-    DRAGGING_POS = None
+    mainFont         = pygame.font.Font(None, 72)
+    smallFont        = pygame.font.Font(None, 36) # Used for Game Over screen.
+    bgImage          = pygame.image.load("background.jpg").convert()
+    draggingPosition = None
+    draggingVeggie   = None
 
     moves = generateMoves()
-    board = generateBoard()
-    
+    board = generateInitialLayout()
+
     # Load the images
     IMAGES = []
     for i in range(1, NUM_VEGGIES + 1):
@@ -96,20 +88,20 @@ def main():
 
     # Create pygame.Rect objects for each board space to
     # do board-coordinate-to-pixel-coordinate conversions.
-    BOARDRECTS = []
+    boardRects = []
     for x in range(BOARD_WIDTH):
-        BOARDRECTS.append([])
+        boardRects.append([])
         for y in range(BOARD_HEIGHT):
-            r = pygame.Rect((XMARGIN + (x * IMAGE_SIZE),
-                             YMARGIN + (y * IMAGE_SIZE),
+            r = pygame.Rect((X_MARGIN + (x * IMAGE_SIZE),
+                             Y_MARGIN + (y * IMAGE_SIZE),
                              IMAGE_SIZE,
                              IMAGE_SIZE))
-            BOARDRECTS[x].append(r)
+            boardRects[x].append(r)
 
     while True:
         runGame()
 
-# AI Code #
+''' AI Code '''
 
 # Requires moves, an array of MAX_GAME_LENGTH size that contains the AIs moves, in order.
 # board, the layout of the board
@@ -120,31 +112,36 @@ def runAI(moves, board, item_stack):
     #
     return()
 
-def generateBoard():
+def generateInitialLayout():
     print("Generating random game board...")
-    
+
+    # Need to create a BOARD_WIDTH x BOARD_HEIGHT matrix of veggies for the initial game board.
+    initialLayout = [[0 for x in range(BOARD_WIDTH)] for x in range(BOARD_HEIGHT)]
+
+
+
+    return(initialLayout)
+
+
+
 
 def generateMoves():
     print("Generating AI moves...")
-    
+
     moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
-    #moves = {}
 
     for i in range(0, MAX_GAME_LENGTH - 1):
         x = randint(0,7)
         y = randint(0,7)
-
         moves[i][0] = x
         moves[i][1] = y
         moves[i][2] = randMove(x, y)
 
     print(moves)
-    
     return(moves) # Return an array of size MAX_GAME_LENGTH that contains AI moves
 
 def randMove(x, y):
-    #move = randint(0,3)
-    bag = set()
+    bag = list()
 
     if x == 0:
         if y == 0:
@@ -182,9 +179,9 @@ def randMove(x, y):
 
 def runGame():
     # Plays through a single game. When the game is over, this function returns.
-    global DRAGGING_POS, DRAGGING_VEG
+    global draggingPosition, draggingVeggie
     global score
-    
+
     # Initialize the board.
     gameBoard               = []
     for x in range(BOARD_WIDTH):
@@ -192,19 +189,21 @@ def runGame():
 
     # initialize variables for the start of a new game
     score                   = 0
+    turn                    = 0
     gameIsOver              = False
-    DRAGGING_POS            = None
+    draggingPosition        = None
     lastMouseDownX          = None
     lastMouseDownY          = None
-    lastScoreDeduction      = time.time()
     firstSelectedVeggie     = None
     clickContinueTextSurf   = None
 
     # Populate and display the initial veggies.
     fillBoardAndAnimate(gameBoard, [])
 
-    while True: # main game loop
+    while turn < MAX_GAME_LENGTH: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
         clickedSpace = None
+
+        ''' For human player input '''
         for event in pygame.event.get(): # event handling loop
             if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
                 pygame.quit()
@@ -213,8 +212,8 @@ def runGame():
                 return # start a new game
 
             elif event.type == MOUSEBUTTONUP:
-                DRAGGING_POS = None
-                
+                draggingPosition = None
+
                 if gameIsOver:
                     return # after games ends, click to start a new game
 
@@ -232,9 +231,9 @@ def runGame():
             elif event.type == MOUSEBUTTONDOWN:
                 # this is the start of a mouse click or mouse drag
                 lastMouseDownX, lastMouseDownY = event.pos
-                DRAGGING_POS = event.pos
-                DRAGGING_VEG = checkForVeggieClick(event.pos)
-                
+                draggingPosition = event.pos
+                draggingVeggie = checkForVeggieClick(event.pos)
+
                 # Uncomment to highlight the veggie square while dragging.
                 #firstSelectedVeggie = checkForVeggieClick((lastMouseDownX, lastMouseDownY))
 
@@ -243,7 +242,7 @@ def runGame():
             firstSelectedVeggie = clickedSpace
         elif clickedSpace and firstSelectedVeggie:
             # Two veggies have been clicked on and selected. Swap the veggies.
-            firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies(gameBoard, firstSelectedVeggie, clickedSpace)
+            firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_H(gameBoard, firstSelectedVeggie, clickedSpace)
             if firstSwappingVeggie == None and secondSwappingVeggie == None:
                 # If both are None, then the veggies were not adjacent
                 firstSelectedVeggie = None # deselect the first veggie
@@ -280,8 +279,8 @@ def runGame():
                         for veggie in veggieSet:
                             gameBoard[veggie[0]][veggie[1]] = EMPTY_SPACE
                         points.append({'points': scoreAdd,
-                                       'x': veggie[0] * IMAGE_SIZE + XMARGIN,
-                                       'y': veggie[1] * IMAGE_SIZE + YMARGIN})
+                                       'x': veggie[0] * IMAGE_SIZE + X_MARGIN,
+                                       'y': veggie[1] * IMAGE_SIZE + Y_MARGIN})
                     score += scoreAdd
 
                     # Drop the new veggies.
@@ -295,31 +294,134 @@ def runGame():
                 gameIsOver = True
 
         # Draw the board.
-        #DISPLAYSURF.fill(BGCOLOR) # Uncomment to draw a black background.
-        DISPLAYSURF.blit(BG_IMAGE, [0, 0]) # Draw the background.
+        gameWindow.blit(bgImage, [0, 0]) # Draw the background.
         drawBoard(gameBoard)
-        
+
         if firstSelectedVeggie != None:
             highlightSpace(firstSelectedVeggie['x'], firstSelectedVeggie['y'])
-            
+
         if gameIsOver:
             if clickContinueTextSurf == None:
                 # Only render the text once. In future iterations, just
                 # use the Surface object already in clickContinueTextSurf
-                clickContinueTextSurf = SMALLFONT.render('Final Score: %s (Click to continue)' % (score), 1, GAMEOVERCOLOR, GAMEOVERBGCOLOR)
+                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
                 clickContinueTextRect = clickContinueTextSurf.get_rect()
                 clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
-            DISPLAYSURF.blit(clickContinueTextSurf, clickContinueTextRect)
-        elif score > 0 and time.time() - lastScoreDeduction > DEDUCTSPEED:
-            # score drops over time
-            score -= 1
-            lastScoreDeduction = time.time()
+            gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
         drawScore(score)
         pygame.display.update()
-        FPSCLOCK.tick(FPS)
+        gameClock.tick(FPS)
 
+    # Ran out of turns. #xxx
+        #TODO
+
+def runGameAsAI():
+    # Plays through a single game. When the game is over, this function returns.
+    global draggingPosition, draggingVeggie
+    global score
+
+    # Initialize the board.
+    gameBoard               = []
+    for x in range(BOARD_WIDTH):
+        gameBoard.append([EMPTY_SPACE] * BOARD_HEIGHT)
+
+    # initialize variables for the start of a new game
+    score                   = 0
+    turn                    = 0
+    move                    = None
+    gameIsOver              = False
+    lastMouseDownX          = None
+    lastMouseDownY          = None
+    firstSelectedVeggie     = None
+    clickContinueTextSurf   = None
+
+    # Populate and display the initial veggies.
+    fillBoardAndAnimate(gameBoard, [])
+
+    while turn < MAX_GAME_LENGTH: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
+        # Get the next veggies to swap from the moves list.
+        # move =
+
+        # Get the data structures of the veggies to try swapping.
+        firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(move)
+
+        # Show the swap animation on the screen.
+        boardCopy = getBoardCopyMinusVeggies(gameBoard, (firstSwappingVeggie, secondSwappingVeggie))
+        animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
+
+        # Swap the veggies in the board data structure.
+        gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
+        gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
+
+        # See if this is a matching move.
+        matchedVeggies = findMatchingVeggies(gameBoard)
+        if matchedVeggies == []:
+            # Was not a matching move; swap the veggies back
+            animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
+            gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
+            gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
+        else:
+            # This was a matching move.
+            scoreAdd = 0
+            while matchedVeggies != []:
+                # Remove matched veggies, then pull down the board.
+
+                # points is a list of dicts that tells fillBoardAndAnimate()
+                # where on the screen to display text to show how many
+                # points the player got. points is a list because if
+                # the playergets multiple matches, then multiple points text should appear.
+                points = []
+                for veggieSet in matchedVeggies:
+                    scoreAdd += (10 + (len(veggieSet) - 3) * 10)
+                    for veggie in veggieSet:
+                        gameBoard[veggie[0]][veggie[1]] = EMPTY_SPACE
+                    points.append({'points': scoreAdd,
+                                   'x': veggie[0] * IMAGE_SIZE + X_MARGIN,
+                                   'y': veggie[1] * IMAGE_SIZE + Y_MARGIN})
+                score += scoreAdd
+
+                # Drop the new veggies.
+                fillBoardAndAnimate(gameBoard, points)
+
+                # Check if there are any new matches.
+                matchedVeggies = findMatchingVeggies(gameBoard)
+
+        if not canMakeMove(gameBoard):
+            gameIsOver = True
+
+        # Redraw the board.
+        gameWindow.blit(bgImage, [0, 0]) # Draw the background.
+        drawBoard(gameBoard)
+
+        if gameIsOver:
+            if clickContinueTextSurf == None:
+                # Only render the text once. In future iterations, just
+                # use the Surface object already in clickContinueTextSurf
+                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
+                clickContinueTextRect = clickContinueTextSurf.get_rect()
+                clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
+            gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
+        drawScore(score)
+        pygame.display.update()
+        gameClock.tick(FPS)
+
+    # Ran out of turns. #xxx
+        #TODO
+
+
+def getSwappingVeggies_AI(move)
+    if DEBUG: print("getSwappingVeggies_AI")
+    firstVeggie = {'imageNum': board[firstXY['x']][firstXY['y']],
+                'x': firstXY['x'],
+                'y': firstXY['y']}
+    secondVeggie = {'imageNum': board[secondXY['x']][secondXY['y']],
+                 'x': secondXY['x'],
+                 'y': secondXY['y']}
+
+    return(firstVeggie, secondVeggie)
 
 def getSwappingVeggies(board, firstXY, secondXY):
+    if DEBUG: print("getSwappingVeggies")
     # If the veggies at the (X, Y) coordinates of the two veggies are adjacent,
     # then their 'direction' keys are set to the appropriate direction
     # value to be swapped with each other.
@@ -414,16 +516,17 @@ def drawMovingVeggie(veggie, progress):
 
     basex = veggie['x']
     basey = veggie['y']
-    if basey == ROWABOVEBOARD:
+    if basey == HIDDEN_ROW:
         basey = -1
 
-    pixelx = XMARGIN + (basex * IMAGE_SIZE)
-    pixely = YMARGIN + (basey * IMAGE_SIZE)
+    pixelx = X_MARGIN + (basex * IMAGE_SIZE)
+    pixely = Y_MARGIN + (basey * IMAGE_SIZE)
     r = pygame.Rect( (pixelx + movex, pixely + movey, IMAGE_SIZE, IMAGE_SIZE) )
-    DISPLAYSURF.blit(IMAGES[veggie['imageNum']], r)
+    gameWindow.blit(IMAGES[veggie['imageNum']], r)
 
 
 def pullDownAllVeggies(board):
+    if DEBUG: print("Pull down all veggies")
     # pulls down veggies on the board to the bottom to fill in any gaps
     for x in range(BOARD_WIDTH):
         veggiesInColumn = []
@@ -434,6 +537,7 @@ def pullDownAllVeggies(board):
 
 
 def getVeggieAt(board, x, y):
+    #if DEBUG: print("getVeggieAt" + str(x) + "," + str(y))
     if x < 0 or y < 0 or x >= BOARD_WIDTH or y >= BOARD_HEIGHT:
         return None
     else:
@@ -441,6 +545,7 @@ def getVeggieAt(board, x, y):
 
 
 def getDropSlots(board):
+    if DEBUG: print("getDropSlots")
     # Creates a "drop slot" for each column and fills the slot with a
     # number of veggies that that column is lacking. This function assumes
     # that the veggies have been gravity dropped already.
@@ -505,10 +610,11 @@ def findMatchingVeggies(board):
 
 
 def highlightSpace(x, y):
-    pygame.draw.rect(DISPLAYSURF, HIGHLIGHTCOLOR, BOARDRECTS[x][y], 4)
+    pygame.draw.rect(gameWindow, HIGHLIGHT_COLOR, boardRects[x][y], 4)
 
 
 def getDroppingVeggies(board):
+    if DEBUG: print("getDroppingVeggies")
     # Find all the veggies that have an empty space below them
     boardCopy = copy.deepcopy(board)
     droppingVeggies = []
@@ -522,31 +628,33 @@ def getDroppingVeggies(board):
 
 
 def animateMovingVeggies(board, veggies, pointsText, speed=MOVE_RATE):
+    #if DEBUG: print("animateMovingVeggies")
     global score
-    
+
     # pointsText is a dictionary with keys 'x', 'y', and 'points'
     progress = 0 # progress at 0 represents beginning, 100 means finished.
     while progress < 100: # animation loop
-        DISPLAYSURF.blit(BG_IMAGE, [0, 0])
+        gameWindow.blit(bgImage, [0, 0])
         drawBoard(board)
         for veggie in veggies: # Draw each veggie.
             drawMovingVeggie(veggie, progress)
         drawScore(score)
         for pointText in pointsText:
-            pointsSurf = BASICFONT.render("+" + str(pointText['points']) + "!", 1, PURPLE)
+            pointsSurf = mainFont.render("+" + str(pointText['points']) + "!", 1, SCORE_COLOR)
             pointsRect = pointsSurf.get_rect()
             pointsRect.center = (pointText['x'], pointText['y'])
-            DISPLAYSURF.blit(pointsSurf, pointsRect)
+            gameWindow.blit(pointsSurf, pointsRect)
 
         pygame.display.update()
-        FPSCLOCK.tick(FPS)
+        gameClock.tick(FPS)
         progress += speed # progress the animation a little bit more for the next frame
 
 
 def moveVeggies(board, movingVeggies):
+    if DEBUG: print("moveVeggies")
     # movingVeggies is a list of dicts with keys x, y, direction, imageNum
     for veggie in movingVeggies:
-        if veggie['y'] != ROWABOVEBOARD:
+        if veggie['y'] != HIDDEN_ROW:
             board[veggie['x']][veggie['y']] = EMPTY_SPACE
             movex = 0
             movey = 0
@@ -565,6 +673,7 @@ def moveVeggies(board, movingVeggies):
 
 
 def fillBoardAndAnimate(board, points):
+    if DEBUG: print("fillBoardAndAnimate")
     dropSlots = getDropSlots(board)
     while dropSlots != [[]] * BOARD_WIDTH:
         # do the dropping animation as long as there are more veggies to drop
@@ -572,7 +681,7 @@ def fillBoardAndAnimate(board, points):
         for x in range(len(dropSlots)):
             if len(dropSlots[x]) != 0:
                 # cause the lowest veggie in each slot to begin moving in the DOWN direction
-                movingVeggies.append({'imageNum': dropSlots[x][0], 'x': x, 'y': ROWABOVEBOARD, 'direction': DOWN})
+                movingVeggies.append({'imageNum': dropSlots[x][0], 'x': x, 'y': HIDDEN_ROW, 'direction': DOWN})
 
         boardCopy = getBoardCopyMinusVeggies(board, movingVeggies)
         animateMovingVeggies(boardCopy, movingVeggies, points, MOVE_RATE * 3)
@@ -591,7 +700,7 @@ def checkForVeggieClick(pos):
     # See if the mouse click was on the board
     for x in range(BOARD_WIDTH):
         for y in range(BOARD_HEIGHT):
-            if BOARDRECTS[x][y].collidepoint(pos[0], pos[1]):
+            if boardRects[x][y].collidepoint(pos[0], pos[1]):
                 return {'x': x, 'y': y}
     return None # Click was not on the board.
 
@@ -599,24 +708,24 @@ def checkForVeggieClick(pos):
 def drawBoard(board):
     for x in range(BOARD_WIDTH):
         for y in range(BOARD_HEIGHT):
-            pygame.draw.rect(DISPLAYSURF, GRIDCOLOR, BOARDRECTS[x][y], 1)
+            pygame.draw.rect(gameWindow, GRID_COLOR, boardRects[x][y], 1)
             veggieToDraw = board[x][y]
-            if DRAGGING_POS != None:
+            if draggingPosition != None:
                 #print ("Dragging...")
-                if ((x == DRAGGING_VEG['x']) and (y == DRAGGING_VEG['y'])):
+                if ((x == draggingVeggie['x']) and (y == draggingVeggie['y'])):
                     # Drag the image with the mouse
                     if veggieToDraw != EMPTY_SPACE:
-                        #DISPLAYSURF.blit(IMAGES[veggieToDraw], [pygame.mouse.get_pos[0], pygame.mouse.get_pos[1]])
+                        #gameWindow.blit(IMAGES[veggieToDraw], [pygame.mouse.get_pos[0], pygame.mouse.get_pos[1]])
                         #print (pygame.mouse.get_pos())
                         mouse_pos = pygame.mouse.get_pos()
-                        veg_item  = BOARDRECTS[x][y]
-                        DISPLAYSURF.blit(IMAGES[veggieToDraw], [mouse_pos[0] - 32, mouse_pos[1] - 32])
+                        veg_item  = boardRects[x][y]
+                        gameWindow.blit(IMAGES[veggieToDraw], [mouse_pos[0] - 32, mouse_pos[1] - 32])
                 else:
                     if veggieToDraw != EMPTY_SPACE:
-                        DISPLAYSURF.blit(IMAGES[veggieToDraw], BOARDRECTS[x][y])
+                        gameWindow.blit(IMAGES[veggieToDraw], boardRects[x][y])
             else:
                 if veggieToDraw != EMPTY_SPACE:
-                    DISPLAYSURF.blit(IMAGES[veggieToDraw], BOARDRECTS[x][y])
+                    gameWindow.blit(IMAGES[veggieToDraw], boardRects[x][y])
 
 
 def getBoardCopyMinusVeggies(board, veggies):
@@ -629,16 +738,16 @@ def getBoardCopyMinusVeggies(board, veggies):
 
     # Remove some of the veggies from this board data structure copy.
     for veggie in veggies:
-        if veggie['y'] != ROWABOVEBOARD:
+        if veggie['y'] != HIDDEN_ROW:
             boardCopy[veggie['x']][veggie['y']] = EMPTY_SPACE
     return boardCopy
 
 
 def drawScore(score):
-    scoreImg = BASICFONT.render(str(score), 1, SCORECOLOR)
+    scoreImg = mainFont.render(str(score), 1, SCORE_COLOR)
     scoreRect = scoreImg.get_rect()
-    scoreRect.bottomleft = (10, GAME_WINDOW_HEIGHT - 6)
-    DISPLAYSURF.blit(scoreImg, scoreRect)
+    scoreRect.bottomleft = (10, WINDOW_HEIGHT - 6)
+    gameWindow.blit(scoreImg, scoreRect)
 
 
 if __name__ == '__main__':
