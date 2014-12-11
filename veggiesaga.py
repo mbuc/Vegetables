@@ -24,13 +24,13 @@ from random import randint
 
 """ Constants """
 
-DEBUG = True
+DEBUG = False
 
-FPS             = 30  # Screen refresh rate (in Frames Per Second).
-MOVE_RATE       = 10  # Animation speed (1 to 100).
+FPS             = 0   # Screen refresh rate (in Frames Per Second). 0 --> No limit.
+MOVE_RATE       = 100 # Animation speed (1 to 100).  100 --> Skip animation.
 IMAGE_SIZE      = 64  # Tile size (px).
 NUM_VEGGIES     = 7   # Number of veggie types.
-MAX_GAME_LENGTH = 100 # The number of moves until a game times out.
+MAX_GAME_LENGTH = 400 # The number of moves until a game times out.
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -77,6 +77,7 @@ def main():
 
     moves = generateMoves()
     board = generateInitialLayout()
+    fills = generateReplacementList()
 
     # Load the images
     IMAGES = []
@@ -98,8 +99,11 @@ def main():
                              IMAGE_SIZE))
             boardRects[x].append(r)
 
-    while True:
-        runGame()
+    #while True:
+    result = runGameAsAI(moves, board, fills)
+
+    print("Result: " + str(result))
+    idleUntilExit()
 
 ''' AI Code '''
 
@@ -122,7 +126,19 @@ def generateInitialLayout():
 
     return(initialLayout)
 
+def generateReplacementList():
+    print("Generating list of replacement veggies...")
+    veggies = [0 for x in range(MAX_GAME_LENGTH)]
 
+    for i in range(0, MAX_GAME_LENGTH):
+        veggies[i] = random.randint(1, NUM_VEGGIES)
+
+    #print(veggies)
+
+    #print("range(len(IMAGES)): " + str(range(len(IMAGES))))
+    #print("NUM_VEGGIES: " + str(NUM_VEGGIES))
+
+    return veggies
 
 
 def generateMoves():
@@ -130,7 +146,7 @@ def generateMoves():
 
     moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
 
-    for i in range(0, MAX_GAME_LENGTH - 1):
+    for i in range(0, MAX_GAME_LENGTH):
         x = randint(0,7)
         y = randint(0,7)
         moves[i][0] = x
@@ -176,6 +192,13 @@ def randMove(x, y):
     return random.choice(bag)
 
 # Game code #
+
+def idleUntilExit():
+    while True:
+        for event in pygame.event.get(): # event handling loop
+            if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
+                pygame.quit()
+                sys.exit()
 
 def runGame():
     # Plays through a single game. When the game is over, this function returns.
@@ -304,7 +327,7 @@ def runGame():
             if clickContinueTextSurf == None:
                 # Only render the text once. In future iterations, just
                 # use the Surface object already in clickContinueTextSurf
-                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
+                clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit; Click to Continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
                 clickContinueTextRect = clickContinueTextSurf.get_rect()
                 clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
             gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
@@ -315,10 +338,10 @@ def runGame():
     # Ran out of turns. #xxx
         #TODO
 
-def runGameAsAI():
+def runGameAsAI(moves, board, fills):
     # Plays through a single game. When the game is over, this function returns.
     global draggingPosition, draggingVeggie
-    global score
+    global score, turn
 
     # Initialize the board.
     gameBoard               = []
@@ -330,20 +353,17 @@ def runGameAsAI():
     turn                    = 0
     move                    = None
     gameIsOver              = False
-    lastMouseDownX          = None
-    lastMouseDownY          = None
-    firstSelectedVeggie     = None
     clickContinueTextSurf   = None
 
     # Populate and display the initial veggies.
     fillBoardAndAnimate(gameBoard, [])
 
-    while turn < MAX_GAME_LENGTH: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
+    while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
         # Get the next veggies to swap from the moves list.
-        # move =
-
+        move = moves[turn]
+        turn = turn + 1;
         # Get the data structures of the veggies to try swapping.
-        firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(move)
+        firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(gameBoard, move)
 
         # Show the swap animation on the screen.
         boardCopy = getBoardCopyMinusVeggies(gameBoard, (firstSwappingVeggie, secondSwappingVeggie))
@@ -399,24 +419,60 @@ def runGameAsAI():
                 # use the Surface object already in clickContinueTextSurf
                 clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
                 clickContinueTextRect = clickContinueTextSurf.get_rect()
-                clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
+                clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
             gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
         drawScore(score)
         pygame.display.update()
         gameClock.tick(FPS)
 
-    # Ran out of turns. #xxx
-        #TODO
+    if not gameIsOver:
+        # Ran out of turns. #xxx
+        if clickContinueTextSurf == None:
+            # Only render the text once. In future iterations, just
+            # use the Surface object already in clickContinueTextSurf
+            clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
+            clickContinueTextRect = clickContinueTextSurf.get_rect()
+            clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
+        gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
+        drawScore(score)
+        pygame.display.update()
+        gameClock.tick(FPS)
+
+    return(score)
 
 
-def getSwappingVeggies_AI(move)
+def getSwappingVeggies_AI(board, move):
     if DEBUG: print("getSwappingVeggies_AI")
-    firstVeggie = {'imageNum': board[firstXY['x']][firstXY['y']],
-                'x': firstXY['x'],
-                'y': firstXY['y']}
-    secondVeggie = {'imageNum': board[secondXY['x']][secondXY['y']],
-                 'x': secondXY['x'],
-                 'y': secondXY['y']}
+
+    x = move[0]
+    y = move[1]
+    movex = 0
+    movey = 0
+    if move[2] == LEFT:
+        movex = -1
+    elif move[2] == RIGHT:
+        movex = 1
+    elif move[2] == DOWN:
+        movey = 1
+    elif move[2] == UP:
+        movey = -1
+
+    firstVeggie = {'imageNum': board[x][y],
+                'x': x,
+                'y': y}
+    secondVeggie = {'imageNum': board[x + movex][y + movey],
+                 'x': x + movex,
+                 'y': y + movey}
+
+    firstVeggie['direction'] = move[2]
+    if move[2] == LEFT:
+        secondVeggie['direction'] = RIGHT
+    elif move[2] == RIGHT:
+        secondVeggie['direction'] = LEFT
+    elif move[2] == DOWN:
+        secondVeggie['direction'] = UP
+    elif move[2] == UP:
+        secondVeggie['direction'] = DOWN
 
     return(firstVeggie, secondVeggie)
 
@@ -744,7 +800,9 @@ def getBoardCopyMinusVeggies(board, veggies):
 
 
 def drawScore(score):
-    scoreImg = mainFont.render(str(score), 1, SCORE_COLOR)
+    global turn
+    if turn is None: turn = 0
+    scoreImg = mainFont.render("Score: " + str(score) + "   Turn: " + str(turn), 1, SCORE_COLOR)
     scoreRect = scoreImg.get_rect()
     scoreRect.bottomleft = (10, WINDOW_HEIGHT - 6)
     gameWindow.blit(scoreImg, scoreRect)
