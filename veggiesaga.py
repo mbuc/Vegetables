@@ -24,6 +24,7 @@ from random import randint
 import tkinter as tk
 from tkinter import *
 import os
+from threading import Thread
 
 ''' Class definitions '''
 class Genome(object):
@@ -46,8 +47,9 @@ FPS             = 0   # Screen refresh rate (in Frames Per Second). 0 --> No lim
 MOVE_RATE       = 75  # Animation speed (1 to 100).  100 --> Skip animation.
 IMAGE_SIZE      = 64  # Tile size (px).
 NUM_VEGGIES     = 7   # Number of veggie types.
-MAX_GAME_LENGTH = 1000 # The number of moves until a game times out.
+MAX_GAME_LENGTH = 10000 # The number of moves until a game times out.
 GENE_POOL_SIZE  = 8   # The number of genomes in each environment in the Genetic Algorithm
+MUTATION_RATE   = 10  # The frequency (in generations) that a mutation will occur.
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -74,13 +76,16 @@ RIGHT       = 'right'
 EMPTY_SPACE = -1       # An arbitrary, non-positive value that signifies an empty space on the board.
 HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
 
+run = False
 showMoves = False
-generationLimit = 1000;
+generationLimit = 100;
 
 ''' (Move later) button callbacks '''
 
 def startButton(event):
-    run = True
+    global run
+    if run: run = False
+    elif not run: run = True
     return
 
 def showButton(event):
@@ -89,23 +94,16 @@ def showButton(event):
     elif showMoves: showMoves = False
     return
 
-def newGame(event):
-    #
-    return
-
 # Tkinter stuff
 root = tk.Tk()
 embed = tk.Frame(root, width = WINDOW_WIDTH, height = WINDOW_HEIGHT)
 embed.pack()
-start = tk.Button(root, text='Start')
+start = tk.Button(root, text='Start/Stop')
 start.bind('<Button-1>', startButton)
 start.pack(side=LEFT)
-stop = tk.Button(root, text='Show Animations')
+stop = tk.Button(root, text='Show/Hide Animations')
 stop.bind('<Button-1>', showButton)
 stop.pack(side=LEFT)
-new = tk.Button(root, text='New Game')
-new.bind('<Button-1>', newGame)
-new.pack(side=LEFT)
 
 genLabel = StringVar()
 Label(root, textvariable=genLabel).pack()
@@ -167,7 +165,12 @@ def main():
 
     #while True:
         #result = runGameAsAI(moves, board, fills)
-    runAI(envir, GENE_POOL_SIZE, True)
+    try:
+        Thread(target=runAI, args=(envir, GENE_POOL_SIZE, True)).start()
+    except:
+        print("Failed to start thread.")
+
+    tk.mainloop()
 
     idleUntilExit()
 
@@ -185,20 +188,22 @@ def runAI(envir, pool_size, reset=False):
             genome = Genome(moves)
             envir.gene_pool.append(genome)
 
-    # Run until generationLimit
-    while generation < generationLimit:
-        genLabel.set("Generation: " + str(generation + 1))
-        generation += 1
-
         # Perform fitness function for each
         i = 0
         for genome in envir.gene_pool:
+            checkStatus() # Check thread status.
             statusLabel.set("Simulating genome " + str(i) + ".")
             genome.score, genome.length = runGameAsAI(genome.moves, envir.board, envir.item_stack, 100)
             print("Genome scored " + str(genome.score) + " in " + str(genome.length) + " moves.")
             if genome.score > bestScore: bestScore = genome.score
             i += 1
             scoreLabel.set("Best score: " + str(bestScore))
+
+    # Run until generationLimit
+    while generation < generationLimit:
+        checkStatus() # Check thread status.
+        genLabel.set("Generation: " + str(generation + 1))
+        generation += 1
 
         # Pick two genomes with roulette wheel selection?
         statusLabel.set("Selecting parent genomes.")
@@ -231,11 +236,26 @@ def runAI(envir, pool_size, reset=False):
 
         if childA.score < envir.gene_pool[worst].score: # Skip child A...
             if childB.score > envir.gene_pool[worst].score: # Make sure B isn't also awful
+                print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
+                print("With child B with score of " + str(childB.score))
                 envir.gene_pool[worst] = childB
+                if childB.score > bestScore:
+                    bestScore = childB.score
+                    scoreLabel.set("Best score: " + str(bestScore))
         elif childB.score < envir.gene_pool[worst].score: # Skip child B...
+            print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
+            print("With child A with score of " + str(childA.score))
             envir.gene_pool[worst] = childA
+            if childA.score > bestScore:
+                bestScore = childA.score
+                scoreLabel.set("Best score: " + str(bestScore))
         else:
+            print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
+            print("With child A with score of " + str(childA.score))
             envir.gene_pool[worst] = childA
+            if childA.score > bestScore:
+                bestScore = childA.score
+                scoreLabel.set("Best score: " + str(bestScore))
             # Find the second-worst to replace it with B.
             worst2 = -1
             i = 0
@@ -250,13 +270,26 @@ def runAI(envir, pool_size, reset=False):
                 i += 1
 
             if childB.score > envir.gene_pool[worst2].score: # Make sure B isn't even worse.
+                print("Replacing genome at " + str(worst2) + " with score of " + str(envir.gene_pool[worst2].score))
+                print("With child B with score of " + str(childB.score))
                 envir.gene_pool[worst2] = childB
+                if childB.score > bestScore:
+                    bestScore = childB.score
+                    scoreLabel.set("Best score: " + str(bestScore))
 
         if DEBUG: print("Worst scoring one was " + str(worst) + " with score " + str(envir.gene_pool[worst].score))
-        #idleUntilExit()
+
+        # If it is time, then mutate.
+        if generation%MUTATION_RATE == 0:
+            mutate(envir.gene_pool)
     #
     #
     return()
+
+def checkStatus():
+    while not run:
+        statusLabel.set("Not running.")
+        time.sleep(1)
 
 # Creates and returns a BOARD_WIDTH x BOARD_HEIGHT matrix of veggies for the initial game board.
 def generateInitialLayout():
@@ -371,6 +404,24 @@ def crossover(gene_pool, a, b):
 
     return Genome(moves)
 
+# Swap two random moves on a random genome.
+def mutate(gene_pool):
+    i = randint(0, GENE_POOL_SIZE - 1)
+    j = randint(0, MAX_GAME_LENGTH - 1)
+    k = randint(0, MAX_GAME_LENGTH - 1)
+
+    moves = gene_pool[i].moves
+    x = moves[j][0]
+    y = moves[j][1]
+    m = moves[j][2]
+
+    moves[j][0] = moves[k][0]
+    moves[j][1] = moves[k][1]
+    moves[j][2] = moves[k][2]
+
+    moves[k][0] = x
+    moves[k][1] = y
+    moves[k][2] = m
 
 # Requires moves, an array of MAX_GAME_LENGTH size that contains the AIs moves, in order.
 # board, the layout of the board
@@ -396,6 +447,7 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
     fillBoardAndAnimate(gameBoard, [], speed)
 
     while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
+        checkStatus() # Check thread status.
 
         # Get the next veggies to swap from the moves list.
         move = moves[turn]
@@ -452,17 +504,7 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
             gameWindow.blit(bgImage, [0, 0]) # Draw the background.
             drawBoard(gameBoard)
 
-        if gameIsOver:
-            if clickContinueTextSurf == None:
-                # Only render the text once. In future iterations, just
-                # use the Surface object already in clickContinueTextSurf
-                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
-                clickContinueTextRect = clickContinueTextSurf.get_rect()
-                clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
-            gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
-
         if speed != 100:
-            print("WAT")
             drawScore(score)
             root.update()
             pygame.display.update()
@@ -470,15 +512,6 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
 
     #if not gameIsOver:
     if 0:
-        # Ran out of turns. #xxx
-        if clickContinueTextSurf == None:
-            # Only render the text once. In future iterations, just
-            # use the Surface object already in clickContinueTextSurf
-            clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
-            clickContinueTextRect = clickContinueTextSurf.get_rect()
-            clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
-        gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
-        print("WAT2")
         drawScore(score)
         root.update()
         pygame.display.update()
@@ -896,7 +929,6 @@ def animateMovingVeggies(board, veggies, pointsText, speed=MOVE_RATE):
         for veggie in veggies: # Draw each veggie.
             drawMovingVeggie(veggie, progress)
         drawScore(score)
-        print("WATWAT")
         for pointText in pointsText:
             pointsSurf = mainFont.render("+" + str(pointText['points']) + "!", 1, SCORE_COLOR)
             pointsRect = pointsSurf.get_rect()
