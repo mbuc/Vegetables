@@ -26,6 +26,7 @@ from tkinter import *
 from tkinter import messagebox
 import os
 from threading import Thread
+import timeit
 
 ''' Class definitions '''
 class Genome(object):
@@ -48,10 +49,10 @@ FPS              = 0     # Screen refresh rate (in Frames Per Second). 0 --> No 
 MOVE_RATE        = 75    # Animation speed (1 to 100).  100 --> Skip animation.
 IMAGE_SIZE       = 64    # Tile size (px).
 NUM_VEGGIES      = 7     # Number of veggie types.
-MAX_GAME_LENGTH  = 10000 # The number of moves until a game times out.
+MAX_GAME_LENGTH  = 1000  # The number of moves until a game times out.
 GENE_POOL_SIZE   = 8     # The number of genomes in each environment in the Genetic Algorithm
 MUTATION_RATE    = 10    # The frequency (in generations) that a mutation will occur.
-GENERATION_LIMIT = 10   # The number of generations stepped through before terminating.
+GENERATION_LIMIT = 100   # The number of generations stepped through before terminating.
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -190,7 +191,8 @@ def main():
     #while True:
         #result = runGameAsAI(moves, board, fills)
     try:
-        thread = Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True))
+        #thread = Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True))
+        thread = Thread(target=runWoC, args=(envir,))
         thread.start()
     except RuntimeError:
         print("Failed to start thread.")
@@ -206,6 +208,7 @@ def main():
 ''' AI Code '''
 # expert_count - the number of GAs to run independently - i.e. the number of experts generated.
 def runWoC(envir):
+    global showMoves
     # Initialize variables
     bestScore = 0
     expert_pool = []
@@ -214,7 +217,8 @@ def runWoC(envir):
 
     for i in range(0, GENE_POOL_SIZE):
         # Update window title
-        root.wm_title("Wisdom of Crowds - Genetic Algorithm Run " + str(i))
+        root.wm_title("Wisdom of Crowds - Genetic Algorithm Run " + str(i + 1) + " of " + str(GENE_POOL_SIZE))
+        print("Beginning Genetic Algorithm run " + str(i + 1) + " of " + str(GENE_POOL_SIZE))
         # Run the GA entirely
         runGeneticAlgorithm(envir, GENE_POOL_SIZE, True)
         if shuttingDown: return # Need to exit thread if shutting down.
@@ -223,7 +227,7 @@ def runWoC(envir):
         # Save the best result in the expert pool.
         best = getBestGenomeIndex(envir.gene_pool)
         bestScore = envir.gene_pool[best].score
-        expert_pool[i] = copy.deepcopy(envir.gene_pool[best])
+        expert_pool.append(copy.deepcopy(envir.gene_pool[best]))
 
     # Now we need to find a way to combine them...
     # How about doing a new GA with this as the new pool???
@@ -233,7 +237,11 @@ def runWoC(envir):
     # Save the current environment to disk for further evaluation
     writeEnvironmentToDisk(envir, file, "Expert Pool - Prior to WoC Round")
 
+    messagebox.showinfo("GA Pools ready", "Genetic Algorithm pools have completed.  Click OK to run WoC.")
+
     # Run the genetic algorithm using the expert pool as the gene pool.
+    root.wm_title("Wisdom of Crowds - Genetic Algorithm Run of Combined Experts")
+    print("Running WoC")
     runGeneticAlgorithm(envir, GENE_POOL_SIZE, False)
     best2 = getBestGenomeIndex(envir.gene_pool)
 
@@ -246,12 +254,25 @@ def runWoC(envir):
     msg += "\nCheck the logfile (" + filename + ") for details."
     messagebox.showinfo("The WoC Algorithm has completed.", msg)
 
+    if messagebox.askyesno("Visualize final solution?", "Would you like to see the final solution animated?"):
+        bestGenome = envir.gene_pool[best2]
+        showMoves  = True
+        print("Final solution: index " + str(best2) + ", score: " + str(bestGenome.score))
+        print(str(bestGenome))
+        runGameAsAI(bestGenome.moves, envir.board, envir.item_stack, 40)
+        statusLabel.set("Done!")
+        time.sleep(100)
+
 def runGeneticAlgorithm(envir, pool_size, reset=False):
     # Initialize
     bestScore = 0
     generation = 0
+    genLabel.set("Generation: 0")
+    scoreLabel.set("Best score: 0")
+
     if reset is True:
-        # Generate pool
+        # Regenerate pool
+        envir.gene_pool = []
         for i in range(0, pool_size):
             moves = generateMoves()
             genome = Genome(moves)
@@ -304,9 +325,15 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
             elif genome.score < envir.gene_pool[worst].score:
                 worst = i
             i += 1
+        if DEBUG: print("Worst score (" + str(worst) + "): " + str(envir.gene_pool[worst].score))
+
+        if worst == -1:
+            print("WTFAILURE!") #xxx
+            print(str(envir.gene_pool))
+            time.sleep(100)
 
         if childA.score < envir.gene_pool[worst].score: # Skip child A...
-            print("Child A is not worth introducing into the gene pool.")
+            print("Child A (" + str(childA.score) + ") is not worth introducing into the gene pool.")
             if childB.score > envir.gene_pool[worst].score: # Make sure B isn't also awful
                 print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
                 print("With child B with score of " + str(childB.score))
@@ -315,9 +342,9 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
                     bestScore = childB.score
                     scoreLabel.set("Best score: " + str(bestScore))
                 else:
-                    print("Child B is not worth introducing into the gene pool.")
+                    print("Child B (" + str(childB.score) + ") is not worth introducing into the gene pool.")
         elif childB.score < envir.gene_pool[worst].score: # Skip child B...
-            print("Child B is not worth introducing into the gene pool.")
+            print("Child B (" + str(childB.score) + ") is not worth introducing into the gene pool.")
             print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
             print("With child A with score of " + str(childA.score))
             envir.gene_pool[worst] = childA
@@ -482,8 +509,8 @@ def crossover(gene_pool, a, b):
     movesB = genomeB.moves
 
     #xxx
-    #moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
-    moves = []
+    moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
+    #moves = []
 
     for i in range(0, MAX_GAME_LENGTH):
         move = None
@@ -523,17 +550,21 @@ def mutate(gene_pool):
 def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
     # Plays through a single game. When the game is over, this function returns.
     global draggingPosition, draggingVeggie
-    global score, turn
+    global score, turn, fillIndex
 
     # Initialize variables for the start of a new game
     score                   = 0
     turn                    = 0
     move                    = None
+    fillIndex               = 0
     gameBoard               = copy.deepcopy(board)
     gameIsOver              = False
 
     # Populate and display the initial veggies.
-    fillBoardAndAnimate(gameBoard, [], speed)
+    start_time = timeit.default_timer()
+    fillBoardAndAnimate(gameBoard, [], fills, speed)
+    stop_time = timeit.default_timer()
+    print(str(stop_time - start_time))
 
     # Run game until there are no more possible moves or MAX_GAME_LENGTH moves have been made.
     while turn < MAX_GAME_LENGTH and not gameIsOver:
@@ -570,7 +601,7 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
                 # points is a list of dicts that tells fillBoardAndAnimate()
                 # where on the screen to display text to show how many
                 # points the player got. points is a list because if
-                # the playergets multiple matches, then multiple points text should appear.
+                # the player gets multiple matches, then multiple points text should appear.
                 points = []
                 for veggieSet in matchedVeggies:
                     scoreAdd += (10 + (len(veggieSet) - 3) * 10)
@@ -582,7 +613,7 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
                 score += scoreAdd
 
                 # Drop the new veggies.
-                fillBoardAndAnimate(gameBoard, points, speed)
+                fillBoardAndAnimate(gameBoard, points, fills, speed)
 
                 # Check if there are any new matches.
                 matchedVeggies = findMatchingVeggies(gameBoard)
@@ -650,24 +681,24 @@ def getSwappingVeggies_AI(board, move):
 def writeEnvironmentToDisk(environ, file, section):
     gene_pool = environ.gene_pool
 
-    file.write(section + "\n")
+    file.write("\n" + section + "\n")
     file.write("BOARD: " + str(environ.board) + "\n")
     file.write("VEG_STACK: " + str(environ.item_stack) + "\n")
+    file.write("\nINDEX\tSCORE\tTURNS\tSEQUENCE\n")
 
     i = 0
     for genome in gene_pool:
-        file.write("INDEX\tSCORE\tTURNS\tSEQUENCE\n")
         file.write(str(i) + "\t" + str(genome.score) + "\t" + str(genome.length))
         file.write("\t" + str(genome.moves) + "\n")
         i += 1
 
 def idleUntilExit(): # Wait for user to hit the Esc key, then exit.
-    '''while True:
+    """while True:
         for event in pygame.event.get(): # event handling loop
             if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
                 pygame.quit()
                 root.quit()
-                sys.exit()'''
+                sys.exit()"""
     while True:
         event = pygame.event.wait()
         if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
@@ -936,7 +967,8 @@ def getVeggieAt(board, x, y):
         return board[x][y]
 
 
-def getDropSlots(board):
+def getDropSlots(board, fill_list):
+    global fillIndex
     if DEBUG: print("getDropSlots")
     # Creates a "drop slot" for each column and fills the slot with a
     # number of veggies that that column is lacking. This function assumes
@@ -952,6 +984,7 @@ def getDropSlots(board):
     for x in range(BOARD_WIDTH):
         for y in range(BOARD_HEIGHT-1, -1, -1): # start from bottom, going up
             if boardCopy[x][y] == EMPTY_SPACE:
+                """
                 possibleVeggies = list(range(len(IMAGES)))
                 for offsetX, offsetY in ((0, -1), (1, 0), (0, 1), (-1, 0)):
                     # Narrow down the possible veggies we should put in the
@@ -961,7 +994,9 @@ def getDropSlots(board):
                     if neighborVeggie != None and neighborVeggie in possibleVeggies:
                         possibleVeggies.remove(neighborVeggie)
 
-                newVeggie = random.choice(possibleVeggies)
+                newVeggie = random.choice(possibleVeggies)"""
+                newVeggie = fill_list[fillIndex]
+                fillIndex += 1
                 boardCopy[x][y] = newVeggie
                 dropSlots[x].append(newVeggie)
     return dropSlots
@@ -1066,9 +1101,9 @@ def moveVeggies(board, movingVeggies):
             board[veggie['x']][0] = veggie['imageNum'] # move to top row
 
 
-def fillBoardAndAnimate(board, points, speed=MOVE_RATE):
+def fillBoardAndAnimate(board, points, fills, speed=MOVE_RATE):
     if DEBUG: print("fillBoardAndAnimate")
-    dropSlots = getDropSlots(board)
+    dropSlots = getDropSlots(board, fills)
     while dropSlots != [[]] * BOARD_WIDTH:
         # do the dropping animation as long as there are more veggies to drop
         movingVeggies = getDroppingVeggies(board)
