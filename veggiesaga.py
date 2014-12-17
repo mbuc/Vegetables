@@ -23,6 +23,7 @@ from pygame.locals import *
 from random import randint
 import tkinter as tk
 from tkinter import *
+from tkinter import messagebox
 import os
 from threading import Thread
 
@@ -181,13 +182,18 @@ def main():
 ''' AI Code '''
 # expert_count - the number of GAs to run independently - i.e. the number of experts generated.
 def runWoC(envir, expert_count):
+    # Initialize variables
     expert_pool = []
+    filename = time.strftime("%Y%m%d-%H%M%S")
+    file     = open(filename, 'w')
 
     for i in range(0, expert_count):
         # Update window title
         root.wm_title("Wisdom of Crowds - Genetic Algorithm Run " + str(i))
         # Run the GA entirely
         runGeneticAlgorithm(envir, GENE_POOL_SIZE, True)
+        # Write the results to disk
+        writeEnvironmentToDisk(envir, file, "Genetic Pool " + str(i))
         # Save the best result in the expert pool.
         best = getBestGenomeIndex(envir.gene_pool)
         expert_pool[i] = copy.deepcopy(envir.gene_pool[best])
@@ -195,31 +201,43 @@ def runWoC(envir, expert_count):
     # Now we need to find a way to combine them...
     # How about doing a new GA with this as the new pool???
     #
+    # Copy the expert pool into the environment
+    envir.gene_pool = expert_pool
     # Save the current environment to disk for further evaluation
-    writeEnvironmentToDisk(envir)
+    writeEnvironmentToDisk(envir, file, "Expert Pool - Prior to WoC Round")
 
+    # Run the genetic algorithm using the expert pool as the gene pool.
+    runGeneticAlgorithm(envir, GENE_POOL_SIZE, False)
+    best = getBestGenomeIndex(envir.gene_pool)
+
+    # Save the current environment to disk for further evaluation
+    writeEnvironmentToDisk(envir, file, "Expert Pool - After WoC Round")
+    file.close()
+
+    # Alert the user that the algorithm has terminated.
+    messagebox.showinfo("WoC Algorithm Completed", "The WoC algorithm has completed.  Please check the log file.")
 
 def runGeneticAlgorithm(envir, pool_size, reset=False):
     # Initialize
     bestScore = 0
+    generation = 0
     if reset is True:
-        generation = 0
         # Generate pool
         for i in range(0, pool_size):
             moves = generateMoves()
             genome = Genome(moves)
             envir.gene_pool.append(genome)
 
-        # Perform fitness function for each
-        i = 0
-        for genome in envir.gene_pool:
-            checkStatus() # Check thread status.
-            statusLabel.set("Simulating genome " + str(i) + ".")
-            genome.score, genome.length = runGameAsAI(genome.moves, envir.board, envir.item_stack, 100)
-            print("Genome scored " + str(genome.score) + " in " + str(genome.length) + " moves.")
-            if genome.score > bestScore: bestScore = genome.score
-            i += 1
-            scoreLabel.set("Best score: " + str(bestScore))
+    # Perform fitness function for each genome
+    i = 0
+    for genome in envir.gene_pool:
+        checkStatus() # Check thread status.
+        statusLabel.set("Simulating genome " + str(i) + ".")
+        genome.score, genome.length = runGameAsAI(genome.moves, envir.board, envir.item_stack, 100)
+        print("Genome scored " + str(genome.score) + " in " + str(genome.length) + " moves.")
+        if genome.score > bestScore: bestScore = genome.score
+        i += 1
+        scoreLabel.set("Best score: " + str(bestScore))
 
     # Run until generationLimit
     while generation < GENERATION_LIMIT:
@@ -476,7 +494,7 @@ def mutate(gene_pool):
 def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
     # Plays through a single game. When the game is over, this function returns.
     global draggingPosition, draggingVeggie
-    global score, turn, run
+    global score, turn
 
     # Initialize variables for the start of a new game
     score                   = 0
@@ -484,12 +502,12 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
     move                    = None
     gameBoard               = copy.deepcopy(board)
     gameIsOver              = False
-    clickContinueTextSurf   = None
 
     # Populate and display the initial veggies.
-    fillBoardAndAnimate(gameBoard, [], 10)
+    fillBoardAndAnimate(gameBoard, [], speed)
 
-    while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
+    # Run game until there are no more possible moves or MAX_GAME_LENGTH moves have been made.
+    while turn < MAX_GAME_LENGTH and not gameIsOver:
         checkStatus() # Check thread status.
 
         # Get the next veggies to swap from the moves list.
@@ -599,12 +617,10 @@ def getSwappingVeggies_AI(board, move):
 
 ''' Universal Game code '''
 
-def writeEnvironmentToDisk(environ):
-    filename = time.strftime("%Y%m%d-%H%M%S")
-    file = open(filename, 'w')
-
+def writeEnvironmentToDisk(environ, file, section):
     gene_pool = environ.gene_pool
 
+    file.write(section + "\n")
     file.write("BOARD: " + str(environ.board) + "\n")
     file.write("VEG_STACK: " + str(environ.item_stack) + "\n")
 
@@ -614,8 +630,6 @@ def writeEnvironmentToDisk(environ):
         file.write(str(i) + "\t" + str(genome.score) + "\t" + str(genome.length))
         file.write("\t" + str(genome.moves) + "\n")
         i += 1
-
-    file.close()
 
 def idleUntilExit(): # Wait for user to hit the Esc key, then exit.
     '''while True:
