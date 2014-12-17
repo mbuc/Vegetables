@@ -3,20 +3,8 @@
 
 # Requires pygame.        #
 
-"""
-This program has "veggie data structures", which are basically dictionaries
-with the following keys:
-  'x' and 'y' - The location of the veggie on the board. 0,0 is the top left.
-                There is also a HIDDEN_ROW row that 'y' can be set to,
-                to indicate that it is above the board.
-  'direction' - one of the four constant variables UP, DOWN, LEFT, RIGHT.
-                This is the direction the veggie is moving.
-  'imageNum'  - The integer index into IMAGES to denote which image
-                this veggie uses.
-"""
-
-''' Note that the game looks for PNG images for each veggie using the name format
-    "veggie#.png" (# from 0 to NUM_VEGGIES - 1). '''
+""" Note that the game looks for PNG images for each veggie using the name format
+    "veggie#.png" (# from 0 to NUM_VEGGIES - 1). """
 
 import random, time, pygame, copy
 from pygame.locals import *
@@ -41,7 +29,7 @@ class Environment(object):
         self.item_stack = item_stack
         self.gene_pool = []
 
-""" Constants """
+''' Constants '''
 
 DEBUG = False
 
@@ -52,7 +40,7 @@ NUM_VEGGIES      = 7     # Number of veggie types.
 MAX_GAME_LENGTH  = 1000  # The number of moves until a game times out.
 GENE_POOL_SIZE   = 8     # The number of genomes in each environment in the Genetic Algorithm
 MUTATION_RATE    = 10    # The frequency (in generations) that a mutation will occur.
-GENERATION_LIMIT = 100   # The number of generations stepped through before terminating.
+GENERATION_LIMIT = 50    # The number of generations stepped through before terminating.
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -77,7 +65,7 @@ DOWN        = 'down'
 LEFT        = 'left'
 RIGHT       = 'right'
 EMPTY_SPACE = -1       # An arbitrary, non-positive value that signifies an empty space on the board.
-HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
+HIDDEN_ROW  = 'hidden' # Signifies the invisible row above the board.
 
 thread = None
 run = False
@@ -186,10 +174,6 @@ def main():
                              IMAGE_SIZE))
             boardRects[x].append(r)
 
-
-
-    #while True:
-        #result = runGameAsAI(moves, board, fills)
     try:
         #thread = Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True))
         thread = Thread(target=runWoC, args=(envir,))
@@ -197,16 +181,12 @@ def main():
     except RuntimeError:
         print("Failed to start thread.")
 
-    # xxx
-    #runWoC(envir)
-    print(thread)
+    # Allow GUI to continue on main loop (waiting for events).
     tk.mainloop()
-
-    idleUntilExit()
 
 
 ''' AI Code '''
-# expert_count - the number of GAs to run independently - i.e. the number of experts generated.
+
 def runWoC(envir):
     global showMoves
     # Initialize variables
@@ -326,11 +306,6 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
                 worst = i
             i += 1
         if DEBUG: print("Worst score (" + str(worst) + "): " + str(envir.gene_pool[worst].score))
-
-        if worst == -1:
-            print("WTFAILURE!") #xxx
-            print(str(envir.gene_pool))
-            time.sleep(100)
 
         if childA.score < envir.gene_pool[worst].score: # Skip child A...
             print("Child A (" + str(childA.score) + ") is not worth introducing into the gene pool.")
@@ -508,9 +483,7 @@ def crossover(gene_pool, a, b):
     movesA = genomeA.moves
     movesB = genomeB.moves
 
-    #xxx
     moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
-    #moves = []
 
     for i in range(0, MAX_GAME_LENGTH):
         move = None
@@ -693,12 +666,6 @@ def writeEnvironmentToDisk(environ, file, section):
         i += 1
 
 def idleUntilExit(): # Wait for user to hit the Esc key, then exit.
-    """while True:
-        for event in pygame.event.get(): # event handling loop
-            if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
-                pygame.quit()
-                root.quit()
-                sys.exit()"""
     while True:
         event = pygame.event.wait()
         if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
@@ -984,17 +951,6 @@ def getDropSlots(board, fill_list):
     for x in range(BOARD_WIDTH):
         for y in range(BOARD_HEIGHT-1, -1, -1): # start from bottom, going up
             if boardCopy[x][y] == EMPTY_SPACE:
-                """
-                possibleVeggies = list(range(len(IMAGES)))
-                for offsetX, offsetY in ((0, -1), (1, 0), (0, 1), (-1, 0)):
-                    # Narrow down the possible veggies we should put in the
-                    # blank space so we don't end up putting an two of
-                    # the same veggies next to each other when they drop.
-                    neighborVeggie = getVeggieAt(boardCopy, x + offsetX, y + offsetY)
-                    if neighborVeggie != None and neighborVeggie in possibleVeggies:
-                        possibleVeggies.remove(neighborVeggie)
-
-                newVeggie = random.choice(possibleVeggies)"""
                 newVeggie = fill_list[fillIndex]
                 fillIndex += 1
                 boardCopy[x][y] = newVeggie
