@@ -18,7 +18,7 @@ with the following keys:
 ''' Note that the game looks for PNG images for each veggie using the name format
     "veggie#.png" (# from 0 to NUM_VEGGIES - 1). '''
 
-import random, time, pygame, sys, copy
+import random, time, pygame, copy
 from pygame.locals import *
 from random import randint
 import tkinter as tk
@@ -78,10 +78,12 @@ RIGHT       = 'right'
 EMPTY_SPACE = -1       # An arbitrary, non-positive value that signifies an empty space on the board.
 HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
 
+thread = None
 run = False
 showMoves = False
+shuttingDown = False
 
-''' (Move later) button callbacks '''
+''' tkinter stuff '''
 
 def startButton(event):
     global run
@@ -95,8 +97,29 @@ def showButton(event):
     elif showMoves: showMoves = False
     return
 
-# Tkinter stuff
+def killWindow():
+    global run, shuttingDown
+    if messagebox.askokcancel("Quit", "Do you really want to quit?"):
+        print("Shutting down.")
+        shuttingDown = True
+        run = True
+        if thread is not None:
+            while thread.isAlive():
+                print("Attempting to kill thread.")
+                thread.join(2)
+        print("exiting pygame")
+        pygame.quit()
+        print("destroying root")
+        root.destroy()
+        print("quitting root")
+        root.quit()
+        print("quit()")
+        quit()
+        print("SystemExit")
+        raise SystemExit
+
 root = tk.Tk()
+root.protocol("WM_DELETE_WINDOW", killWindow)
 embed = tk.Frame(root, width = WINDOW_WIDTH, height = WINDOW_HEIGHT)
 embed.pack()
 start = tk.Button(root, text='Start/Stop')
@@ -125,6 +148,7 @@ os.environ['SDL_VIDEODRIVER'] = 'windib'
 
 def main():
     global gameClock, gameWindow, IMAGES, mainFont, smallFont, boardRects, bgImage, draggingPosition, draggingVeggie
+    global thread
 
     # Initial set up.
     pygame.init()
@@ -167,13 +191,14 @@ def main():
     #while True:
         #result = runGameAsAI(moves, board, fills)
     try:
-        Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True)).start()
+        thread = Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True))
+        thread.start()
     except RuntimeError:
         print("Failed to start thread.")
 
     # xxx
-    #runWoC(envir, 10)
-
+    #runWoC(envir)
+    print(thread)
     tk.mainloop()
 
     idleUntilExit()
@@ -181,17 +206,18 @@ def main():
 
 ''' AI Code '''
 # expert_count - the number of GAs to run independently - i.e. the number of experts generated.
-def runWoC(envir, expert_count):
+def runWoC(envir):
     # Initialize variables
     expert_pool = []
     filename = time.strftime("%Y%m%d-%H%M%S")
     file     = open(filename, 'w')
 
-    for i in range(0, expert_count):
+    for i in range(0, GENE_POOL_SIZE):
         # Update window title
         root.wm_title("Wisdom of Crowds - Genetic Algorithm Run " + str(i))
         # Run the GA entirely
         runGeneticAlgorithm(envir, GENE_POOL_SIZE, True)
+        if shuttingDown: return # Need to exit thread if shutting down.
         # Write the results to disk
         writeEnvironmentToDisk(envir, file, "Genetic Pool " + str(i))
         # Save the best result in the expert pool.
@@ -231,7 +257,8 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
     # Perform fitness function for each genome
     i = 0
     for genome in envir.gene_pool:
-        checkStatus() # Check thread status.
+        checkThreadStatus() # Check thread status.
+        if shuttingDown: return # Need to exit thread if shutting down.
         statusLabel.set("Simulating genome " + str(i) + ".")
         genome.score, genome.length = runGameAsAI(genome.moves, envir.board, envir.item_stack, 100)
         print("Genome scored " + str(genome.score) + " in " + str(genome.length) + " moves.")
@@ -241,7 +268,8 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
 
     # Run until generationLimit
     while generation < GENERATION_LIMIT:
-        checkStatus() # Check thread status.
+        checkThreadStatus() # Check thread status.
+        if shuttingDown: return # Need to exit thread if shutting down.
         genLabel.set("Generation: " + str(generation + 1))
         generation += 1
 
@@ -331,8 +359,9 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
 
     return()
 
-def checkStatus():
+def checkThreadStatus():
     while not run:
+        if shuttingDown: return # Need to exit thread if shutting down.
         statusLabel.set("Not running.")
         time.sleep(1)
 
@@ -508,7 +537,8 @@ def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
 
     # Run game until there are no more possible moves or MAX_GAME_LENGTH moves have been made.
     while turn < MAX_GAME_LENGTH and not gameIsOver:
-        checkStatus() # Check thread status.
+        checkThreadStatus() # Check thread status.
+        if shuttingDown: return # Need to exit thread if shutting down.
 
         # Get the next veggies to swap from the moves list.
         move = moves[turn]
