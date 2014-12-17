@@ -161,7 +161,6 @@ def main():
     draggingPosition = None
     draggingVeggie   = None
 
-    moves = generateMoves()
     board = generateInitialLayout()
     fills = generateReplacementList()
     envir = Environment(board, fills)
@@ -208,8 +207,9 @@ def main():
 # expert_count - the number of GAs to run independently - i.e. the number of experts generated.
 def runWoC(envir):
     # Initialize variables
+    bestScore = 0
     expert_pool = []
-    filename = time.strftime("%Y%m%d-%H%M%S")
+    filename = time.strftime("%Y%m%d-%H%M%S") + ".log"
     file     = open(filename, 'w')
 
     for i in range(0, GENE_POOL_SIZE):
@@ -222,6 +222,7 @@ def runWoC(envir):
         writeEnvironmentToDisk(envir, file, "Genetic Pool " + str(i))
         # Save the best result in the expert pool.
         best = getBestGenomeIndex(envir.gene_pool)
+        bestScore = envir.gene_pool[best].score
         expert_pool[i] = copy.deepcopy(envir.gene_pool[best])
 
     # Now we need to find a way to combine them...
@@ -234,14 +235,16 @@ def runWoC(envir):
 
     # Run the genetic algorithm using the expert pool as the gene pool.
     runGeneticAlgorithm(envir, GENE_POOL_SIZE, False)
-    best = getBestGenomeIndex(envir.gene_pool)
+    best2 = getBestGenomeIndex(envir.gene_pool)
 
     # Save the current environment to disk for further evaluation
     writeEnvironmentToDisk(envir, file, "Expert Pool - After WoC Round")
     file.close()
 
     # Alert the user that the algorithm has terminated.
-    messagebox.showinfo("WoC Algorithm Completed", "The WoC algorithm has completed.  Please check the log file.")
+    msg = "Best of GA: " + str(bestScore) + "; Best of WoC: " + str(envir.gene_pool[best2].score) + "."
+    msg += "\nCheck the logfile (" + filename + ") for details."
+    messagebox.showinfo("The WoC Algorithm has completed.", msg)
 
 def runGeneticAlgorithm(envir, pool_size, reset=False):
     # Initialize
@@ -355,7 +358,6 @@ def runGeneticAlgorithm(envir, pool_size, reset=False):
         if generation%MUTATION_RATE == 0:
             mutate(envir.gene_pool)
     #
-    writeEnvironmentToDisk(envir)
 
     return()
 
@@ -456,7 +458,6 @@ def getBestGenomeIndex(gene_pool):
 
 def getNewParentIndex(gene_pool):
     sumScore = 0
-    best = 0
     for genome in gene_pool:
         sumScore += genome.score
 
@@ -474,16 +475,15 @@ def getNewParentIndex(gene_pool):
 def crossover(gene_pool, a, b):
     # Note that a and b are indices
     crosspoint = randint(0, MAX_GAME_LENGTH - 1)
-    x = 0
-    y = 0
-    dir = None
 
     genomeA = gene_pool[a]
     genomeB = gene_pool[b]
     movesA = genomeA.moves
     movesB = genomeB.moves
 
-    moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
+    #xxx
+    #moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
+    moves = []
 
     for i in range(0, MAX_GAME_LENGTH):
         move = None
@@ -786,8 +786,8 @@ def playGame():
             firstSelectedVeggie = clickedSpace
         elif clickedSpace and firstSelectedVeggie:
             # Two veggies have been clicked on and selected. Swap the veggies.
-            firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_H(gameBoard, firstSelectedVeggie, clickedSpace)
-            if firstSwappingVeggie == None and secondSwappingVeggie == None:
+            firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies(gameBoard, firstSelectedVeggie, clickedSpace)
+            if firstSwappingVeggie is None and secondSwappingVeggie is None:
                 # If both are None, then the veggies were not adjacent
                 firstSelectedVeggie = None # deselect the first veggie
                 continue
@@ -850,15 +850,14 @@ def playGame():
                 # use the Surface object already in clickContinueTextSurf
                 clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit; Click to Continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
                 clickContinueTextRect = clickContinueTextSurf.get_rect()
-                clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
+                clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
             gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
         drawScore(score)
         root.update()
         pygame.display.update()
         gameClock.tick(FPS)
 
-    # Ran out of turns. #xxx
-        #TODO
+        return
 
 def getSwappingVeggies(board, firstXY, secondXY):
     if DEBUG: print("getSwappingVeggies")
