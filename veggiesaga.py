@@ -21,16 +21,33 @@ with the following keys:
 import random, time, pygame, sys, copy
 from pygame.locals import *
 from random import randint
+import tkinter as tk
+from tkinter import *
+import os
+
+''' Class definitions '''
+class Genome(object):
+    def __init__(self, moves):
+        self.moves   = moves
+        self.score   = None
+        self.length  = None
+
+class Environment(object):
+    def __init__(self, board, item_stack):
+        self.board = board
+        self.item_stack = item_stack
+        self.gene_pool = []
 
 """ Constants """
 
 DEBUG = False
 
 FPS             = 0   # Screen refresh rate (in Frames Per Second). 0 --> No limit.
-MOVE_RATE       = 100 # Animation speed (1 to 100).  100 --> Skip animation.
+MOVE_RATE       = 75  # Animation speed (1 to 100).  100 --> Skip animation.
 IMAGE_SIZE      = 64  # Tile size (px).
 NUM_VEGGIES     = 7   # Number of veggie types.
-MAX_GAME_LENGTH = 400 # The number of moves until a game times out.
+MAX_GAME_LENGTH = 1000 # The number of moves until a game times out.
+GENE_POOL_SIZE  = 8   # The number of genomes in each environment in the Genetic Algorithm
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -57,6 +74,52 @@ RIGHT       = 'right'
 EMPTY_SPACE = -1       # An arbitrary, non-positive value that signifies an empty space on the board.
 HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
 
+showMoves = False
+generationLimit = 1000;
+
+''' (Move later) button callbacks '''
+
+def startButton(event):
+    run = True
+    return
+
+def showButton(event):
+    global showMoves
+    if not showMoves: showMoves = True
+    elif showMoves: showMoves = False
+    return
+
+def newGame(event):
+    #
+    return
+
+# Tkinter stuff
+root = tk.Tk()
+embed = tk.Frame(root, width = WINDOW_WIDTH, height = WINDOW_HEIGHT)
+embed.pack()
+start = tk.Button(root, text='Start')
+start.bind('<Button-1>', startButton)
+start.pack(side=LEFT)
+stop = tk.Button(root, text='Show Animations')
+stop.bind('<Button-1>', showButton)
+stop.pack(side=LEFT)
+new = tk.Button(root, text='New Game')
+new.bind('<Button-1>', newGame)
+new.pack(side=LEFT)
+
+genLabel = StringVar()
+Label(root, textvariable=genLabel).pack()
+scoreLabel = StringVar()
+Label(root, textvariable=scoreLabel).pack()
+statusLabel = StringVar()
+Label(root, textvariable=statusLabel).pack()
+
+#embed.grid(columnspan = 600, rowspan = 500) # Adds grid
+#embed.pack(side = TOP) # packs window to the left
+#buttonwin = tk.Frame(root, width = 75, height = 500)
+#buttonwin.pack(side = RIGHT)
+os.environ['SDL_WINDOWID'] = str(embed.winfo_id())
+os.environ['SDL_VIDEODRIVER'] = 'windib'
 
 
 ''' Main function '''
@@ -78,6 +141,7 @@ def main():
     moves = generateMoves()
     board = generateInitialLayout()
     fills = generateReplacementList()
+    envir = Environment(board, fills)
 
     # Load the images
     IMAGES = []
@@ -99,33 +163,108 @@ def main():
                              IMAGE_SIZE))
             boardRects[x].append(r)
 
-    #while True:
-    result = runGameAsAI(moves, board, fills)
 
-    print("Result: " + str(result))
+
+    #while True:
+        #result = runGameAsAI(moves, board, fills)
+    runAI(envir, GENE_POOL_SIZE, True)
+
     idleUntilExit()
+
 
 ''' AI Code '''
 
-# Requires moves, an array of MAX_GAME_LENGTH size that contains the AIs moves, in order.
-# board, the layout of the board
-# item_stack, the stack of items that will fill in empty spaces.
-def runAI(moves, board, item_stack):
-    #
+def runAI(envir, pool_size, reset=False):
+    # Initialize
+    bestScore = 0
+    if reset is True:
+        generation = 0
+        # Generate pool
+        for i in range(0, pool_size):
+            moves = generateMoves()
+            genome = Genome(moves)
+            envir.gene_pool.append(genome)
+
+    # Run until generationLimit
+    while generation < generationLimit:
+        genLabel.set("Generation: " + str(generation + 1))
+        generation += 1
+
+        # Perform fitness function for each
+        i = 0
+        for genome in envir.gene_pool:
+            statusLabel.set("Simulating genome " + str(i) + ".")
+            genome.score, genome.length = runGameAsAI(genome.moves, envir.board, envir.item_stack, 100)
+            print("Genome scored " + str(genome.score) + " in " + str(genome.length) + " moves.")
+            if genome.score > bestScore: bestScore = genome.score
+            i += 1
+            scoreLabel.set("Best score: " + str(bestScore))
+
+        # Pick two genomes with roulette wheel selection?
+        statusLabel.set("Selecting parent genomes.")
+        parentA = getNewParentIndex(envir.gene_pool)
+        parentB = getNewParentIndex(envir.gene_pool)
+        while parentB == parentA:
+            print("Identical parents; reselecting.")
+            parentB = getNewParentIndex(envir.gene_pool)
+
+        # Crossover the selected genomes
+        statusLabel.set("Crossing over.")
+        childA = crossover(envir.gene_pool, parentA, parentB)
+        statusLabel.set("Simulating offspring A")
+        childA.score, childA.length = runGameAsAI(childA.moves, envir.board, envir.item_stack, 100)
+        childB = crossover(envir.gene_pool, parentB, parentA)
+        statusLabel.set("Simulating offspring B")
+        childB.score, childB.length = runGameAsAI(childB.moves, envir.board, envir.item_stack, 100)
+        statusLabel.set("Inserting...")
+
+        # Find out which two are the worst (including new genomes)
+        worst = -1
+        i = 0
+        for genome in envir.gene_pool:
+            if DEBUG: print("Score of " + str(i) + ": " + str(genome.score))
+            if worst == -1:
+                worst = i
+            elif genome.score < envir.gene_pool[worst].score:
+                worst = i
+            i += 1
+
+        if childA.score < envir.gene_pool[worst].score: # Skip child A...
+            if childB.score > envir.gene_pool[worst].score: # Make sure B isn't also awful
+                envir.gene_pool[worst] = childB
+        elif childB.score < envir.gene_pool[worst].score: # Skip child B...
+            envir.gene_pool[worst] = childA
+        else:
+            envir.gene_pool[worst] = childA
+            # Find the second-worst to replace it with B.
+            worst2 = -1
+            i = 0
+            for genome in envir.gene_pool:
+                if DEBUG: print("Score of " + str(i) + ": " + str(genome.score))
+                if i == worst:
+                    continue
+                if worst2 == -1:
+                    worst2 = i
+                elif genome.score < envir.gene_pool[worst2].score:
+                    worst2 = i
+                i += 1
+
+            if childB.score > envir.gene_pool[worst2].score: # Make sure B isn't even worse.
+                envir.gene_pool[worst2] = childB
+
+        if DEBUG: print("Worst scoring one was " + str(worst) + " with score " + str(envir.gene_pool[worst].score))
+        #idleUntilExit()
     #
     #
     return()
 
+# Creates and returns a BOARD_WIDTH x BOARD_HEIGHT matrix of veggies for the initial game board.
 def generateInitialLayout():
     print("Generating random game board...")
-
-    # Need to create a BOARD_WIDTH x BOARD_HEIGHT matrix of veggies for the initial game board.
     initialLayout = [[0 for x in range(BOARD_WIDTH)] for x in range(BOARD_HEIGHT)]
+    return initialLayout
 
-
-
-    return(initialLayout)
-
+# Creates and returns a list of veggies that will be used to fill in empty spaces.
 def generateReplacementList():
     print("Generating list of replacement veggies...")
     veggies = [0 for x in range(MAX_GAME_LENGTH)]
@@ -133,16 +272,12 @@ def generateReplacementList():
     for i in range(0, MAX_GAME_LENGTH):
         veggies[i] = random.randint(1, NUM_VEGGIES)
 
-    #print(veggies)
-
-    #print("range(len(IMAGES)): " + str(range(len(IMAGES))))
-    #print("NUM_VEGGIES: " + str(NUM_VEGGIES))
-
     return veggies
 
 
+# Creates and returns an array of size MAX_GAME_LENGTH that contains random AI moves
 def generateMoves():
-    print("Generating AI moves...")
+    if DEBUG: print("Generating AI moves...")
 
     moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
 
@@ -153,9 +288,10 @@ def generateMoves():
         moves[i][1] = y
         moves[i][2] = randMove(x, y)
 
-    print(moves)
-    return(moves) # Return an array of size MAX_GAME_LENGTH that contains AI moves
+    if DEBUG: print(moves)
+    return moves
 
+# Randomly selects a direction for the AI's move.  By evaluating the position, it always returns a valid move.
 def randMove(x, y):
     bag = list()
 
@@ -191,16 +327,263 @@ def randMove(x, y):
 
     return random.choice(bag)
 
-# Game code #
+def getNewParentIndex(gene_pool):
+    sumScore = 0
+    best = 0
+    for genome in gene_pool:
+        sumScore += genome.score
 
-def idleUntilExit():
-    while True:
+    r = randint(0, sumScore)
+
+    i = 0
+    sumScore = 0
+    for genome in gene_pool:
+        sumScore += genome.score
+        if r < sumScore:
+            return i
+        else:
+            i += 1
+
+def crossover(gene_pool, a, b):
+    # Note that a and b are indices
+    crosspoint = randint(0, MAX_GAME_LENGTH - 1)
+    x = 0
+    y = 0
+    dir = None
+
+    genomeA = gene_pool[a]
+    genomeB = gene_pool[b]
+    movesA = genomeA.moves
+    movesB = genomeB.moves
+
+    moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
+
+    for i in range(0, MAX_GAME_LENGTH):
+        move = None
+        if i < crosspoint: # Copy from
+            move = movesA[i]
+        else: # Copy from B
+            move = movesB[i]
+
+        moves[i][0] = move[0]
+        moves[i][1] = move[1]
+        moves[i][2] = move[2]
+
+    return Genome(moves)
+
+
+# Requires moves, an array of MAX_GAME_LENGTH size that contains the AIs moves, in order.
+# board, the layout of the board
+# item_stack, the stack of items that will fill in empty spaces.
+def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
+    # Plays through a single game. When the game is over, this function returns.
+    global draggingPosition, draggingVeggie
+    global score, turn
+
+    # Initialize the board.
+    gameBoard               = []
+    for x in range(BOARD_WIDTH):
+        gameBoard.append([EMPTY_SPACE] * BOARD_HEIGHT)
+
+    # initialize variables for the start of a new game
+    score                   = 0
+    turn                    = 0
+    move                    = None
+    gameIsOver              = False
+    clickContinueTextSurf   = None
+
+    # Populate and display the initial veggies.
+    fillBoardAndAnimate(gameBoard, [], speed)
+
+    while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
+
+        # Get the next veggies to swap from the moves list.
+        move = moves[turn]
+        turn = turn + 1;
+        # Get the data structures of the veggies to try swapping.
+        firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(gameBoard, move)
+
+        # Show the swap animation on the screen.
+        boardCopy = getBoardCopyMinusVeggies(gameBoard, (firstSwappingVeggie, secondSwappingVeggie))
+        animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [], speed)
+
+        # Swap the veggies in the board data structure.
+        gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
+        gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
+
+        # See if this is a matching move.
+        matchedVeggies = findMatchingVeggies(gameBoard)
+        if matchedVeggies == []:
+            # Was not a matching move; swap the veggies back
+            animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [], speed)
+            gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
+            gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
+        else:
+            # This was a matching move.
+            scoreAdd = 0
+            while matchedVeggies != []:
+                # Remove matched veggies, then pull down the board.
+
+                # points is a list of dicts that tells fillBoardAndAnimate()
+                # where on the screen to display text to show how many
+                # points the player got. points is a list because if
+                # the playergets multiple matches, then multiple points text should appear.
+                points = []
+                for veggieSet in matchedVeggies:
+                    scoreAdd += (10 + (len(veggieSet) - 3) * 10)
+                    for veggie in veggieSet:
+                        gameBoard[veggie[0]][veggie[1]] = EMPTY_SPACE
+                    points.append({'points': scoreAdd,
+                                   'x': veggie[0] * IMAGE_SIZE + X_MARGIN,
+                                   'y': veggie[1] * IMAGE_SIZE + Y_MARGIN})
+                score += scoreAdd
+
+                # Drop the new veggies.
+                fillBoardAndAnimate(gameBoard, points, speed)
+
+                # Check if there are any new matches.
+                matchedVeggies = findMatchingVeggies(gameBoard)
+
+        if not canMakeMove(gameBoard):
+            gameIsOver = True
+
+        # Redraw the board.
+        if speed != 100:
+            gameWindow.blit(bgImage, [0, 0]) # Draw the background.
+            drawBoard(gameBoard)
+
+        if gameIsOver:
+            if clickContinueTextSurf == None:
+                # Only render the text once. In future iterations, just
+                # use the Surface object already in clickContinueTextSurf
+                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
+                clickContinueTextRect = clickContinueTextSurf.get_rect()
+                clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
+            gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
+
+        if speed != 100:
+            print("WAT")
+            drawScore(score)
+            root.update()
+            pygame.display.update()
+            #gameClock.tick(FPS)
+
+    #if not gameIsOver:
+    if 0:
+        # Ran out of turns. #xxx
+        if clickContinueTextSurf == None:
+            # Only render the text once. In future iterations, just
+            # use the Surface object already in clickContinueTextSurf
+            clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
+            clickContinueTextRect = clickContinueTextSurf.get_rect()
+            clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
+        gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
+        print("WAT2")
+        drawScore(score)
+        root.update()
+        pygame.display.update()
+        gameClock.tick(FPS)
+
+    return score, turn
+
+def getSwappingVeggies_AI(board, move):
+    if DEBUG: print("getSwappingVeggies_AI")
+
+    x = move[0]
+    y = move[1]
+    movex = 0
+    movey = 0
+    if move[2] == LEFT:
+        movex = -1
+    elif move[2] == RIGHT:
+        movex = 1
+    elif move[2] == DOWN:
+        movey = 1
+    elif move[2] == UP:
+        movey = -1
+
+    firstVeggie = {'imageNum': board[x][y],
+                'x': x,
+                'y': y}
+    secondVeggie = {'imageNum': board[x + movex][y + movey],
+                 'x': x + movex,
+                 'y': y + movey}
+
+    firstVeggie['direction'] = move[2]
+    if move[2] == LEFT:
+        secondVeggie['direction'] = RIGHT
+    elif move[2] == RIGHT:
+        secondVeggie['direction'] = LEFT
+    elif move[2] == DOWN:
+        secondVeggie['direction'] = UP
+    elif move[2] == UP:
+        secondVeggie['direction'] = DOWN
+
+    return(firstVeggie, secondVeggie)
+
+''' Universal Game code '''
+
+def idleUntilExit(): # Wait for user to hit the Esc key, then exit.
+    '''while True:
         for event in pygame.event.get(): # event handling loop
             if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
                 pygame.quit()
-                sys.exit()
+                root.quit()
+                sys.exit()'''
+    while True:
+        event = pygame.event.wait()
+        if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
+            pygame.quit()
+            root.quit()
+            sys.exit()
 
-def runGame():
+
+# Returns True if there are moves left, False otherwise.
+def canMakeMove(board):
+    # The patterns in oneOffPatterns represent veggies that are configured
+    # in a way where it only takes one move to make a triplet.
+    oneOffPatterns = (((0,1), (1,0), (2,0)),
+                      ((0,1), (1,1), (2,0)),
+                      ((0,0), (1,1), (2,0)),
+                      ((0,1), (1,0), (2,1)),
+                      ((0,0), (1,0), (2,1)),
+                      ((0,0), (1,1), (2,1)),
+                      ((0,0), (0,2), (0,3)),
+                      ((0,0), (0,1), (0,3)))
+
+    # The x and y variables iterate over each space on the board.
+    # If we use + to represent the currently iterated space on the
+    # board, then this pattern: ((0,1), (1,0), (2,0))refers to identical
+    # veggies being set up like this:
+    #
+    #     +A
+    #     B
+    #     C
+    #
+    # That is, veggie A is offset from the + by (0,1), veggie B is offset
+    # by (1,0), and veggie C is offset by (2,0). In this case, veggie A can
+    # be swapped to the left to form a vertical three-in-a-row triplet.
+    #
+    # There are eight possible ways for the veggies to be one move
+    # away from forming a triple, hence oneOffPattern has 8 patterns.
+
+    for x in range(BOARD_WIDTH):
+        for y in range(BOARD_HEIGHT):
+            for pat in oneOffPatterns:
+                # check each possible pattern of "match in next move" to
+                # see if a possible move can be made.
+                if (getVeggieAt(board, x+pat[0][0], y+pat[0][1]) == \
+                    getVeggieAt(board, x+pat[1][0], y+pat[1][1]) == \
+                    getVeggieAt(board, x+pat[2][0], y+pat[2][1]) != None) or \
+                   (getVeggieAt(board, x+pat[0][1], y+pat[0][0]) == \
+                    getVeggieAt(board, x+pat[1][1], y+pat[1][0]) == \
+                    getVeggieAt(board, x+pat[2][1], y+pat[2][0]) != None):
+                    return True # return True the first time you find a pattern
+    return False
+
+''' Human player code '''
+
+def playGame():
     # Plays through a single game. When the game is over, this function returns.
     global draggingPosition, draggingVeggie
     global score
@@ -332,149 +715,12 @@ def runGame():
                 clickContinueTextRect.center = int(GAME_WINDOW_WIDTH / 2), int(GAME_WINDOW_HEIGHT / 2)
             gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
         drawScore(score)
+        root.update()
         pygame.display.update()
         gameClock.tick(FPS)
 
     # Ran out of turns. #xxx
         #TODO
-
-def runGameAsAI(moves, board, fills):
-    # Plays through a single game. When the game is over, this function returns.
-    global draggingPosition, draggingVeggie
-    global score, turn
-
-    # Initialize the board.
-    gameBoard               = []
-    for x in range(BOARD_WIDTH):
-        gameBoard.append([EMPTY_SPACE] * BOARD_HEIGHT)
-
-    # initialize variables for the start of a new game
-    score                   = 0
-    turn                    = 0
-    move                    = None
-    gameIsOver              = False
-    clickContinueTextSurf   = None
-
-    # Populate and display the initial veggies.
-    fillBoardAndAnimate(gameBoard, [])
-
-    while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
-        # Get the next veggies to swap from the moves list.
-        move = moves[turn]
-        turn = turn + 1;
-        # Get the data structures of the veggies to try swapping.
-        firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(gameBoard, move)
-
-        # Show the swap animation on the screen.
-        boardCopy = getBoardCopyMinusVeggies(gameBoard, (firstSwappingVeggie, secondSwappingVeggie))
-        animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
-
-        # Swap the veggies in the board data structure.
-        gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
-        gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
-
-        # See if this is a matching move.
-        matchedVeggies = findMatchingVeggies(gameBoard)
-        if matchedVeggies == []:
-            # Was not a matching move; swap the veggies back
-            animateMovingVeggies(boardCopy, [firstSwappingVeggie, secondSwappingVeggie], [])
-            gameBoard[firstSwappingVeggie['x']][firstSwappingVeggie['y']] = firstSwappingVeggie['imageNum']
-            gameBoard[secondSwappingVeggie['x']][secondSwappingVeggie['y']] = secondSwappingVeggie['imageNum']
-        else:
-            # This was a matching move.
-            scoreAdd = 0
-            while matchedVeggies != []:
-                # Remove matched veggies, then pull down the board.
-
-                # points is a list of dicts that tells fillBoardAndAnimate()
-                # where on the screen to display text to show how many
-                # points the player got. points is a list because if
-                # the playergets multiple matches, then multiple points text should appear.
-                points = []
-                for veggieSet in matchedVeggies:
-                    scoreAdd += (10 + (len(veggieSet) - 3) * 10)
-                    for veggie in veggieSet:
-                        gameBoard[veggie[0]][veggie[1]] = EMPTY_SPACE
-                    points.append({'points': scoreAdd,
-                                   'x': veggie[0] * IMAGE_SIZE + X_MARGIN,
-                                   'y': veggie[1] * IMAGE_SIZE + Y_MARGIN})
-                score += scoreAdd
-
-                # Drop the new veggies.
-                fillBoardAndAnimate(gameBoard, points)
-
-                # Check if there are any new matches.
-                matchedVeggies = findMatchingVeggies(gameBoard)
-
-        if not canMakeMove(gameBoard):
-            gameIsOver = True
-
-        # Redraw the board.
-        gameWindow.blit(bgImage, [0, 0]) # Draw the background.
-        drawBoard(gameBoard)
-
-        if gameIsOver:
-            if clickContinueTextSurf == None:
-                # Only render the text once. In future iterations, just
-                # use the Surface object already in clickContinueTextSurf
-                clickContinueTextSurf = smallFont.render('Final Score: %s (Click to continue)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
-                clickContinueTextRect = clickContinueTextSurf.get_rect()
-                clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
-            gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
-        drawScore(score)
-        pygame.display.update()
-        gameClock.tick(FPS)
-
-    if not gameIsOver:
-        # Ran out of turns. #xxx
-        if clickContinueTextSurf == None:
-            # Only render the text once. In future iterations, just
-            # use the Surface object already in clickContinueTextSurf
-            clickContinueTextSurf = smallFont.render('Final Score: %s (Press Esc to exit)' % (score), 1, GAME_OVER_COLOR, GAME_OVER_BG_COLOR)
-            clickContinueTextRect = clickContinueTextSurf.get_rect()
-            clickContinueTextRect.center = int(WINDOW_WIDTH / 2), int(WINDOW_HEIGHT / 2)
-        gameWindow.blit(clickContinueTextSurf, clickContinueTextRect)
-        drawScore(score)
-        pygame.display.update()
-        gameClock.tick(FPS)
-
-    return(score)
-
-
-def getSwappingVeggies_AI(board, move):
-    if DEBUG: print("getSwappingVeggies_AI")
-
-    x = move[0]
-    y = move[1]
-    movex = 0
-    movey = 0
-    if move[2] == LEFT:
-        movex = -1
-    elif move[2] == RIGHT:
-        movex = 1
-    elif move[2] == DOWN:
-        movey = 1
-    elif move[2] == UP:
-        movey = -1
-
-    firstVeggie = {'imageNum': board[x][y],
-                'x': x,
-                'y': y}
-    secondVeggie = {'imageNum': board[x + movex][y + movey],
-                 'x': x + movex,
-                 'y': y + movey}
-
-    firstVeggie['direction'] = move[2]
-    if move[2] == LEFT:
-        secondVeggie['direction'] = RIGHT
-    elif move[2] == RIGHT:
-        secondVeggie['direction'] = LEFT
-    elif move[2] == DOWN:
-        secondVeggie['direction'] = UP
-    elif move[2] == UP:
-        secondVeggie['direction'] = DOWN
-
-    return(firstVeggie, secondVeggie)
 
 def getSwappingVeggies(board, firstXY, secondXY):
     if DEBUG: print("getSwappingVeggies")
@@ -505,53 +751,6 @@ def getSwappingVeggies(board, firstXY, secondXY):
         # These veggies are not adjacent and can't be swapped.
         return None, None
     return firstVeggie, secondVeggie
-
-
-def canMakeMove(board):
-    # Return True if the board is in a state where a matching
-    # move can be made on it. Otherwise return False.
-
-    # The patterns in oneOffPatterns represent veggies that are configured
-    # in a way where it only takes one move to make a triplet.
-    oneOffPatterns = (((0,1), (1,0), (2,0)),
-                      ((0,1), (1,1), (2,0)),
-                      ((0,0), (1,1), (2,0)),
-                      ((0,1), (1,0), (2,1)),
-                      ((0,0), (1,0), (2,1)),
-                      ((0,0), (1,1), (2,1)),
-                      ((0,0), (0,2), (0,3)),
-                      ((0,0), (0,1), (0,3)))
-
-    # The x and y variables iterate over each space on the board.
-    # If we use + to represent the currently iterated space on the
-    # board, then this pattern: ((0,1), (1,0), (2,0))refers to identical
-    # veggies being set up like this:
-    #
-    #     +A
-    #     B
-    #     C
-    #
-    # That is, veggie A is offset from the + by (0,1), veggie B is offset
-    # by (1,0), and veggie C is offset by (2,0). In this case, veggie A can
-    # be swapped to the left to form a vertical three-in-a-row triplet.
-    #
-    # There are eight possible ways for the veggies to be one move
-    # away from forming a triple, hence oneOffPattern has 8 patterns.
-
-    for x in range(BOARD_WIDTH):
-        for y in range(BOARD_HEIGHT):
-            for pat in oneOffPatterns:
-                # check each possible pattern of "match in next move" to
-                # see if a possible move can be made.
-                if (getVeggieAt(board, x+pat[0][0], y+pat[0][1]) == \
-                    getVeggieAt(board, x+pat[1][0], y+pat[1][1]) == \
-                    getVeggieAt(board, x+pat[2][0], y+pat[2][1]) != None) or \
-                   (getVeggieAt(board, x+pat[0][1], y+pat[0][0]) == \
-                    getVeggieAt(board, x+pat[1][1], y+pat[1][0]) == \
-                    getVeggieAt(board, x+pat[2][1], y+pat[2][0]) != None):
-                    return True # return True the first time you find a pattern
-    return False
-
 
 def drawMovingVeggie(veggie, progress):
     # Draw a veggie sliding in the direction that its 'direction' key
@@ -689,21 +888,24 @@ def animateMovingVeggies(board, veggies, pointsText, speed=MOVE_RATE):
 
     # pointsText is a dictionary with keys 'x', 'y', and 'points'
     progress = 0 # progress at 0 represents beginning, 100 means finished.
+    if showMoves is True: progress = 0
+    elif speed == 100: progress = 100
     while progress < 100: # animation loop
         gameWindow.blit(bgImage, [0, 0])
         drawBoard(board)
         for veggie in veggies: # Draw each veggie.
             drawMovingVeggie(veggie, progress)
         drawScore(score)
+        print("WATWAT")
         for pointText in pointsText:
             pointsSurf = mainFont.render("+" + str(pointText['points']) + "!", 1, SCORE_COLOR)
             pointsRect = pointsSurf.get_rect()
             pointsRect.center = (pointText['x'], pointText['y'])
             gameWindow.blit(pointsSurf, pointsRect)
-
         pygame.display.update()
-        gameClock.tick(FPS)
         progress += speed # progress the animation a little bit more for the next frame
+    root.update()
+    gameClock.tick(FPS)
 
 
 def moveVeggies(board, movingVeggies):
@@ -728,7 +930,7 @@ def moveVeggies(board, movingVeggies):
             board[veggie['x']][0] = veggie['imageNum'] # move to top row
 
 
-def fillBoardAndAnimate(board, points):
+def fillBoardAndAnimate(board, points, speed=MOVE_RATE):
     if DEBUG: print("fillBoardAndAnimate")
     dropSlots = getDropSlots(board)
     while dropSlots != [[]] * BOARD_WIDTH:
@@ -740,7 +942,7 @@ def fillBoardAndAnimate(board, points):
                 movingVeggies.append({'imageNum': dropSlots[x][0], 'x': x, 'y': HIDDEN_ROW, 'direction': DOWN})
 
         boardCopy = getBoardCopyMinusVeggies(board, movingVeggies)
-        animateMovingVeggies(boardCopy, movingVeggies, points, MOVE_RATE * 3)
+        animateMovingVeggies(boardCopy, movingVeggies, points, speed)
         moveVeggies(board, movingVeggies)
 
         # Make the next row of veggies from the drop slots
