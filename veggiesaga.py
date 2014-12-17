@@ -43,13 +43,14 @@ class Environment(object):
 
 DEBUG = False
 
-FPS             = 0   # Screen refresh rate (in Frames Per Second). 0 --> No limit.
-MOVE_RATE       = 75  # Animation speed (1 to 100).  100 --> Skip animation.
-IMAGE_SIZE      = 64  # Tile size (px).
-NUM_VEGGIES     = 7   # Number of veggie types.
-MAX_GAME_LENGTH = 10000 # The number of moves until a game times out.
-GENE_POOL_SIZE  = 8   # The number of genomes in each environment in the Genetic Algorithm
-MUTATION_RATE   = 10  # The frequency (in generations) that a mutation will occur.
+FPS              = 0     # Screen refresh rate (in Frames Per Second). 0 --> No limit.
+MOVE_RATE        = 75    # Animation speed (1 to 100).  100 --> Skip animation.
+IMAGE_SIZE       = 64    # Tile size (px).
+NUM_VEGGIES      = 7     # Number of veggie types.
+MAX_GAME_LENGTH  = 10000 # The number of moves until a game times out.
+GENE_POOL_SIZE   = 8     # The number of genomes in each environment in the Genetic Algorithm
+MUTATION_RATE    = 10    # The frequency (in generations) that a mutation will occur.
+GENERATION_LIMIT = 10   # The number of generations stepped through before terminating.
 
 assert NUM_VEGGIES >= 5 # The game needs at least 5 veggies
 
@@ -78,7 +79,6 @@ HIDDEN_ROW  = 'hidden' # an arbitrary, noninteger  #xxx what
 
 run = False
 showMoves = False
-generationLimit = 100;
 
 ''' (Move later) button callbacks '''
 
@@ -166,9 +166,12 @@ def main():
     #while True:
         #result = runGameAsAI(moves, board, fills)
     try:
-        Thread(target=runAI, args=(envir, GENE_POOL_SIZE, True)).start()
-    except:
+        Thread(target=runGeneticAlgorithm, args=(envir, GENE_POOL_SIZE, True)).start()
+    except RuntimeError:
         print("Failed to start thread.")
+
+    # xxx
+    #runWoC(envir, 10)
 
     tk.mainloop()
 
@@ -176,8 +179,27 @@ def main():
 
 
 ''' AI Code '''
+# expert_count - the number of GAs to run independently - i.e. the number of experts generated.
+def runWoC(envir, expert_count):
+    expert_pool = []
 
-def runAI(envir, pool_size, reset=False):
+    for i in range(0, expert_count):
+        # Update window title
+        root.wm_title("Wisdom of Crowds - Genetic Algorithm Run " + str(i))
+        # Run the GA entirely
+        runGeneticAlgorithm(envir, GENE_POOL_SIZE, True)
+        # Save the best result in the expert pool.
+        best = getBestGenomeIndex(envir.gene_pool)
+        expert_pool[i] = copy.deepcopy(envir.gene_pool[best])
+
+    # Now we need to find a way to combine them...
+    # How about doing a new GA with this as the new pool???
+    #
+    # Save the current environment to disk for further evaluation
+    writeEnvironmentToDisk(envir)
+
+
+def runGeneticAlgorithm(envir, pool_size, reset=False):
     # Initialize
     bestScore = 0
     if reset is True:
@@ -200,7 +222,7 @@ def runAI(envir, pool_size, reset=False):
             scoreLabel.set("Best score: " + str(bestScore))
 
     # Run until generationLimit
-    while generation < generationLimit:
+    while generation < GENERATION_LIMIT:
         checkStatus() # Check thread status.
         genLabel.set("Generation: " + str(generation + 1))
         generation += 1
@@ -235,6 +257,7 @@ def runAI(envir, pool_size, reset=False):
             i += 1
 
         if childA.score < envir.gene_pool[worst].score: # Skip child A...
+            print("Child A is not worth introducing into the gene pool.")
             if childB.score > envir.gene_pool[worst].score: # Make sure B isn't also awful
                 print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
                 print("With child B with score of " + str(childB.score))
@@ -242,7 +265,10 @@ def runAI(envir, pool_size, reset=False):
                 if childB.score > bestScore:
                     bestScore = childB.score
                     scoreLabel.set("Best score: " + str(bestScore))
+                else:
+                    print("Child B is not worth introducing into the gene pool.")
         elif childB.score < envir.gene_pool[worst].score: # Skip child B...
+            print("Child B is not worth introducing into the gene pool.")
             print("Replacing genome at " + str(worst) + " with score of " + str(envir.gene_pool[worst].score))
             print("With child A with score of " + str(childA.score))
             envir.gene_pool[worst] = childA
@@ -283,7 +309,8 @@ def runAI(envir, pool_size, reset=False):
         if generation%MUTATION_RATE == 0:
             mutate(envir.gene_pool)
     #
-    #
+    writeEnvironmentToDisk(envir)
+
     return()
 
 def checkStatus():
@@ -295,6 +322,11 @@ def checkStatus():
 def generateInitialLayout():
     print("Generating random game board...")
     initialLayout = [[0 for x in range(BOARD_WIDTH)] for x in range(BOARD_HEIGHT)]
+
+    for x in range(BOARD_WIDTH):
+        for y in range(BOARD_HEIGHT):
+            initialLayout[x][y] = randint(0, NUM_VEGGIES - 1)
+
     return initialLayout
 
 # Creates and returns a list of veggies that will be used to fill in empty spaces.
@@ -303,7 +335,7 @@ def generateReplacementList():
     veggies = [0 for x in range(MAX_GAME_LENGTH)]
 
     for i in range(0, MAX_GAME_LENGTH):
-        veggies[i] = random.randint(1, NUM_VEGGIES)
+        veggies[i] = randint(1, NUM_VEGGIES - 1)
 
     return veggies
 
@@ -315,8 +347,8 @@ def generateMoves():
     moves = [[0 for x in range(3)] for x in range(MAX_GAME_LENGTH)]
 
     for i in range(0, MAX_GAME_LENGTH):
-        x = randint(0,7)
-        y = randint(0,7)
+        x = randint(0, NUM_VEGGIES - 1)
+        y = randint(0, NUM_VEGGIES - 1)
         moves[i][0] = x
         moves[i][1] = y
         moves[i][2] = randMove(x, y)
@@ -360,13 +392,28 @@ def randMove(x, y):
 
     return random.choice(bag)
 
+def getBestGenomeIndex(gene_pool):
+    bestScore = 0
+    bestIndex = -1
+    i = 0
+    for genome in gene_pool:
+        if genome.score > bestScore:
+            bestScore = genome.score
+            bestIndex = i
+        i += 1
+
+    if bestIndex == -1:
+        print("ERROR in getBestGenome()")
+
+    return bestIndex
+
 def getNewParentIndex(gene_pool):
     sumScore = 0
     best = 0
     for genome in gene_pool:
         sumScore += genome.score
 
-    r = randint(0, sumScore)
+    r = randint(0, sumScore - 1)
 
     i = 0
     sumScore = 0
@@ -429,29 +476,25 @@ def mutate(gene_pool):
 def runGameAsAI(moves, board, fills, speed=MOVE_RATE):
     # Plays through a single game. When the game is over, this function returns.
     global draggingPosition, draggingVeggie
-    global score, turn
+    global score, turn, run
 
-    # Initialize the board.
-    gameBoard               = []
-    for x in range(BOARD_WIDTH):
-        gameBoard.append([EMPTY_SPACE] * BOARD_HEIGHT)
-
-    # initialize variables for the start of a new game
+    # Initialize variables for the start of a new game
     score                   = 0
     turn                    = 0
     move                    = None
+    gameBoard               = copy.deepcopy(board)
     gameIsOver              = False
     clickContinueTextSurf   = None
 
     # Populate and display the initial veggies.
-    fillBoardAndAnimate(gameBoard, [], speed)
+    fillBoardAndAnimate(gameBoard, [], 10)
 
     while turn < MAX_GAME_LENGTH and not gameIsOver: # Run game until there are no more possible moves or MAX_GAME_LENGTH moves made.
         checkStatus() # Check thread status.
 
         # Get the next veggies to swap from the moves list.
         move = moves[turn]
-        turn = turn + 1;
+        turn += 1
         # Get the data structures of the veggies to try swapping.
         firstSwappingVeggie, secondSwappingVeggie = getSwappingVeggies_AI(gameBoard, move)
 
@@ -555,6 +598,24 @@ def getSwappingVeggies_AI(board, move):
     return(firstVeggie, secondVeggie)
 
 ''' Universal Game code '''
+
+def writeEnvironmentToDisk(environ):
+    filename = time.strftime("%Y%m%d-%H%M%S")
+    file = open(filename, 'w')
+
+    gene_pool = environ.gene_pool
+
+    file.write("BOARD: " + str(environ.board) + "\n")
+    file.write("VEG_STACK: " + str(environ.item_stack) + "\n")
+
+    i = 0
+    for genome in gene_pool:
+        file.write("INDEX\tSCORE\tTURNS\tSEQUENCE\n")
+        file.write(str(i) + "\t" + str(genome.score) + "\t" + str(genome.length))
+        file.write("\t" + str(genome.moves) + "\n")
+        i += 1
+
+    file.close()
 
 def idleUntilExit(): # Wait for user to hit the Esc key, then exit.
     '''while True:
@@ -1000,9 +1061,9 @@ def drawBoard(board):
         for y in range(BOARD_HEIGHT):
             pygame.draw.rect(gameWindow, GRID_COLOR, boardRects[x][y], 1)
             veggieToDraw = board[x][y]
-            if draggingPosition != None:
+            if not draggingPosition is None:
                 #print ("Dragging...")
-                if ((x == draggingVeggie['x']) and (y == draggingVeggie['y'])):
+                if (x == draggingVeggie['x']) and (y == draggingVeggie['y']):
                     # Drag the image with the mouse
                     if veggieToDraw != EMPTY_SPACE:
                         #gameWindow.blit(IMAGES[veggieToDraw], [pygame.mouse.get_pos[0], pygame.mouse.get_pos[1]])
